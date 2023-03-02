@@ -47,7 +47,7 @@ from transformers.utils import add_start_docstrings, add_start_docstrings_to_mod
 from transformers import WhisperConfig
 
 import layers
-from .layers import with_sharding_constraint
+from layers import with_sharding_constraint
 
 logger = logging.get_logger(__name__)
 
@@ -197,10 +197,18 @@ class FlaxWhisperAttention(nn.Module):
             dtype=self.dtype,
             params_dtype=self.params_dtype,
             kernel_axes=('embed', 'heads', 'kv'),  # TODO: correct kernel axis?
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            ## kernel_init=jax.nn.initializers.normal(self.config.init_std),
         )
 
-        self.q_proj = dense(use_bias=self.bias)
+        self.q_proj = layers.DenseGeneral(
+            self.embed_dim,
+            dtype=self.dtype,
+            params_dtype=self.params_dtype,
+            kernel_axes=('embed', 'heads', 'kv'),  # TODO: correct kernel axis?
+            ## kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            axis=-1,
+            use_bias=self.bias,
+        )
         self.k_proj = dense(use_bias=False)
         self.v_proj = dense(use_bias=self.bias)
         self.out_proj = dense(use_bias=self.bias)
@@ -400,11 +408,11 @@ class FlaxWhisperEncoderLayer(nn.Module):
             dtype=self.dtype,
             params_dtype=self.params_dtype,
             kernel_axes=('embed', 'mlp'),
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            ## kernel_init=jax.nn.initializers.normal(self.config.init_std),
         )
         self.fc2 = layers.DenseGeneral(
             self.embed_dim, dtype=self.dtype, params_dtype=self.params_dtype,
-            kernel_axes=('mlp', 'embed'), kernel_init=jax.nn.initializers.normal(self.config.init_std)
+            kernel_axes=('mlp', 'embed'), # kernel_init=jax.nn.initializers.normal(self.config.init_std)
         )
         self.final_layer_norm = layers.LayerNorm(dtype=self.dtype, epsilon=1e-05, params_dtype=self.params_dtype)
 
@@ -536,13 +544,16 @@ class FlaxWhisperDecoderLayer(nn.Module):
             params_dtype=self.params_dtype,
         )
         self.encoder_attn_layer_norm = layers.LayerNorm(dtype=self.dtype, epsilon=1e-05, params_dtype=self.params_dtype)
-        self.fc1 = nn.Dense(
+        self.fc1 = layers.DenseGeneral(
             self.config.decoder_ffn_dim,
             dtype=self.dtype,
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            params_dtype=self.params_dtype,
+            kernel_axes=('embed', 'mlp'),
+            ## kernel_init=jax.nn.initializers.normal(self.config.init_std),
         )
-        self.fc2 = nn.Dense(
-            self.embed_dim, dtype=self.dtype, kernel_init=jax.nn.initializers.normal(self.config.init_std)
+        self.fc2 = layers.DenseGeneral(
+            self.embed_dim, dtype=self.dtype, params_dtype=self.params_dtype,
+            kernel_axes=('mlp', 'embed'), # kernel_init=jax.nn.initializers.normal(self.config.init_std)
         )
         self.final_layer_norm = layers.LayerNorm(dtype=self.dtype, epsilon=1e-05, params_dtype=self.params_dtype)
 
@@ -694,18 +705,17 @@ class FlaxWhisperEncoder(nn.Module):
             self.config.d_model,
             kernel_size=(3,),
             padding=1,
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            # kernel_init=jax.nn.initializers.normal(self.config.init_std),
             dtype=self.dtype,
-            params_dtype=self.params_dtype,
+            #kernel_axes=('embed', 'vocab'),
         )
         self.conv2 = nn.Conv(
             self.config.d_model,
             kernel_size=(3,),
             strides=2,
             padding=1,
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            # kernel_init=jax.nn.initializers.normal(self.config.init_std),
             dtype=self.dtype,
-            params_dtype=self.params_dtype,
         )
 
         self.dropout_layer = nn.Dropout(rate=self.config.dropout)
@@ -1231,12 +1241,12 @@ class FlaxWhisperForConditionalGenerationModule(nn.Module):
 
     def setup(self) -> None:
         self.model = FlaxWhisperModule(config=self.config, dtype=self.dtype, params_dtype=self.params_dtype)
-        self.lm_head = nn.Dense(
+        self.lm_head = layers.DenseGeneral(
             self.config.vocab_size,
             use_bias=False,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
-            kernel_init=jax.nn.initializers.normal(self.config.init_std),
+            # kernel_init=jax.nn.initializers.normal(self.config.init_std),
             kernel_axes=('embed', 'vocab'),
         )
 
