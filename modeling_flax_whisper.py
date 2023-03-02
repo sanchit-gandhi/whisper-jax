@@ -49,8 +49,6 @@ from transformers import WhisperConfig
 import layers
 from layers import with_sharding_constraint
 
-import conv_layers
-
 logger = logging.get_logger(__name__)
 
 
@@ -703,7 +701,7 @@ class FlaxWhisperEncoder(nn.Module):
 
     def setup(self) -> None:
         # TODO: T5x conv layers
-        self.conv1 = conv_layers.Conv(
+        self.conv1 = layers.Conv(
             self.config.d_model,
             kernel_size=(3,),
             padding=1,
@@ -711,7 +709,7 @@ class FlaxWhisperEncoder(nn.Module):
             params_dtype=self.params_dtype,
             kernel_axes=('embed', 'vocab'),
         )
-        self.conv2 = conv_layers.Conv(
+        self.conv2 = layers.Conv(
             self.config.d_model,
             kernel_size=(3,),
             strides=2,
