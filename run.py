@@ -1,4 +1,3 @@
-from tensorflow.python._pywrap_tensorflow_internal import *
 from modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
@@ -8,28 +7,10 @@ from jax.experimental import PartitionSpec as P
 from partitioner import PjitPartitioner
 from train_state import InferenceState
 
-num_mp_partitions = 1
+# TODO: update for device
+model_parallel_submesh = (1, 2, 4, 1)
 
 # 2D parameter and activation partitioning
-# TODO: update for device
-logical_axis_rules_tpu = [
-    ('batch', 'data'),
-    ('mlp', 'model'),
-    ('heads', 'model'),
-    ('vocab', 'model'),
-    # shard both activations and weight matrices on the remaining available axis
-    ('embed', 'model'),
-    ('embed', 'data'),
-    ('kv', None),
-    ('joined_kv', None),
-    ('relpos_buckets', None),
-    ('abspos_buckets', None),
-    ('length', None),
-    ('layers', None),
-    ('stack', None),
-    ('mlp_activations', None),
-]
-
 logical_axis_rules_full = [
     ('batch', 'data'),
     ('mlp', 'model'),
@@ -46,9 +27,15 @@ logical_axis_rules_full = [
     ('layers', None),
     ('stack', None),
     ('mlp_activations', None),
+    ('num_mel', None)
 ]
 
-model, params = FlaxWhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny.en", _do_init=False)
+model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
+    "openai/whisper-tiny.en",
+    _do_init=False,
+    dtype=jnp.bfloat16,
+    param_dtype=jnp.bfloat16,
+)
 
 def init_fn():
     input_shape = (1, 80, 3000)
@@ -68,7 +55,7 @@ def init_fn():
 # Axis names metadata
 param_axes = jax.eval_shape(init_fn)["params_axes"]
 
-# create InferenceState, since the partitioner expects it.
+# Create InferenceState, since the partitioner expects it
 state = InferenceState(
     step=jnp.array(0),
     params=freeze(model.params_shape_tree),
@@ -77,16 +64,18 @@ state = InferenceState(
     flax_mutables_axes=param_axes,
 )
 
-partitioner = PjitPartitioner(num_mp_partitions, logical_axis_rules=logical_axis_rules_full)
+partitioner = PjitPartitioner(
+    model_parallel_submesh=model_parallel_submesh,
+    logical_axis_rules=logical_axis_rules_full
+)
 
 mesh_axes = partitioner.get_mesh_axes(state)
 params_spec = mesh_axes.params
 
-# TODO: to bf16 for TPU
-p_shard_params = partitioner.partition(model.to_fp16, (params_spec,), params_spec)
+p_shard_params = partitioner.partition(model.to_bf16, (params_spec,), params_spec)
 
-def generate(params, input_features, attention_mask=None):
-    output_ids = model.generate(input_features, attention_mask=attention_mask, params=params).sequences
+def generate(params, input_features):
+    output_ids = model.generate(input_features, params=params, max_new_tokens=25).sequences
     return output_ids
 
 
@@ -99,6 +88,6 @@ p_generate = partitioner.partition(
 # This will auto-magically run in mesh context
 params = p_shard_params(freeze(params))
 
-inputs = jnp.ones(1, 80, 3000, dtype=jnp.float16)
+inputs = jnp.ones((1, 80, 3000), dtype=jnp.bfloat16)
 
-gen_ids = p_generate(freeze(params), inputs["input_features"])
+gen_ids = p_generate(freeze(params), inputs)
