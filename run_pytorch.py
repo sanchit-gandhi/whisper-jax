@@ -3,11 +3,11 @@ from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from datasets import load_dataset, concatenate_datasets
 import time
 
-BATCH_SIZES = [4, 8, 16, 32, 64]
+BATCH_SIZES = [4, 8, 16, 32, 64, 128]
 NUM_BATCHES = 100
 NUM_TOKENS = 25
 
-model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-small.en")
+model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-large-v2")
 model.to("cuda").half()
 
 # processors/tokenizers are the same for all models, so just load from tiny and preprocess once

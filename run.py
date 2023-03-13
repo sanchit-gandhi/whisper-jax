@@ -8,33 +8,26 @@ from partitioner import PjitPartitioner
 from train_state import InferenceState
 
 # TODO: update for device
-model_parallel_submesh = (1, 2, 4, 1)
+model_parallel_submesh = (2, 2, 1, 1)
 
 # 2D parameter and activation partitioning
 logical_axis_rules_full = [
-    ('batch', 'data'),
-    ('mlp', 'model'),
-    ('heads', 'model'),
-    ('vocab', 'model'),
+    ("batch", "data"),
+    ("mlp", "model"),
+    ("heads", "model"),
+    ("vocab", "model"),
     # shard both activations and weight matrices on the remaining available axis
-    ('embed', 'model'),
-    ('embed', 'data'),
-    ('kv', None),
-    ('joined_kv', None),
-    ('relpos_buckets', None),
-    ('abspos_buckets', None),
-    ('length', None),
-    ('layers', None),
-    ('stack', None),
-    ('mlp_activations', None),
-    ('num_mel', None)
+    ("embed", "model"),
+    ("embed", "data"),
+    ("kv", None),
+    ("length", None),
+    ("num_mel", None)
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
     "openai/whisper-tiny.en",
     _do_init=False,
     dtype=jnp.bfloat16,
-    param_dtype=jnp.bfloat16,
 )
 
 def init_fn():
@@ -50,7 +43,15 @@ def init_fn():
     decoder_position_ids = jnp.broadcast_to(jnp.arange(sequence_length)[None, :], (batch_size, sequence_length))
 
     rng = jax.random.PRNGKey(0)
-    return model.module.init(rng, input_features=input_features, decoder_input_ids=decoder_input_ids, decoder_attention_mask=decoder_attention_mask, decoder_position_ids=decoder_position_ids, return_dict=False)
+    init_params = model.module.init(
+        rng,
+        input_features=input_features,
+        decoder_input_ids=decoder_input_ids,
+        decoder_attention_mask=decoder_attention_mask,
+        decoder_position_ids=decoder_position_ids,
+        return_dict=False,
+    )
+    return init_params
 
 # Axis names metadata
 param_axes = jax.eval_shape(init_fn)["params_axes"]
@@ -82,7 +83,7 @@ def generate(params, input_features):
 p_generate = partitioner.partition(
     generate,
     in_axis_resources=(params_spec, P("data"), P("data")),
-    out_axis_resources=P("data")
+    out_axis_resources=P("data"),
 )
 
 # This will auto-magically run in mesh context

@@ -1,13 +1,14 @@
-from transformers import FlaxWhisperForConditionalGeneration, WhisperProcessor
 import jax.numpy as jnp
 import jax
+from jax.experimental.compilation_cache import compilation_cache as cc
 from flax.training.common_utils import shard
 
+from transformers import WhisperProcessor
+from modeling_flax_whisper_pmap import FlaxWhisperForConditionalGeneration
 from datasets import load_dataset, concatenate_datasets
 
 import time
 
-from jax.experimental.compilation_cache import compilation_cache as cc
 
 cc.initialize_cache("./jax_cache")
 
@@ -16,10 +17,12 @@ NUM_BATCHES = 100
 NUM_TOKENS = 25
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-small.en",
+    "openai/whisper-large-v2",
     _do_init=False,
     dtype=jnp.bfloat16,
 )
+
+params = model.to_bf16(params)
 
 def generate_fn(batch):
     pred_ids = model.generate(batch, params=params, max_new_tokens=NUM_TOKENS, min_new_tokens=NUM_TOKENS)
@@ -48,13 +51,13 @@ for batch_size in BATCH_SIZES:
 
     # warm-up step
     batch = next(iter(eval_dataloader))
-    batch = shard(batch.data)
-    out = p_generate_fn(batch["input_features"])
+    input_features = shard(batch["input_features"])
+    pred_ids = p_generate_fn(input_features)
 
     start = time.time()
     for batch in eval_dataloader:
-        batch = shard(batch.data)
-        out = p_generate_fn(batch["input_features"])
+        input_features = shard(batch["input_features"])
+        pred_ids = p_generate_fn(input_features)
     runtime = time.time() - start
 
     print(f"{batch_size}: {runtime:.06}")
