@@ -17,7 +17,7 @@ NUM_BATCHES = 100
 NUM_TOKENS = 25
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-large-v2",
+    "openai/whisper-tiny.en",
     _do_init=False,
     dtype=jnp.bfloat16,
 )
