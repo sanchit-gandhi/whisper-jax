@@ -82,13 +82,13 @@ def generate(params, input_features):
 
 p_generate = partitioner.partition(
     generate,
-    in_axis_resources=(params_spec, P("data"), P("data")),
+    in_axis_resources=(params_spec, P("data")),
     out_axis_resources=P("data"),
 )
 
 # This will auto-magically run in mesh context
 params = p_shard_params(freeze(params))
 
-inputs = jnp.ones((1, 80, 3000), dtype=jnp.bfloat16)
+inputs = jnp.ones((8, 80, 3000), dtype=jnp.bfloat16)
 
 gen_ids = p_generate(freeze(params), inputs)
