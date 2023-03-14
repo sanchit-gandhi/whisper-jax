@@ -211,7 +211,7 @@ class FlaxWhisperAttention(nn.Module):
 
         self.out_proj = layers.DenseGeneral(
             self.embed_dim,
-            axis=-1,  # TODO(SG): check this applies over the right axis (embed dim) and kernel axis
+            axis=-1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
             kernel_axes=("joined_kv", "embed"),
@@ -713,7 +713,6 @@ class FlaxWhisperEncoder(nn.Module):
     params_dtype: jnp.dtype = jnp.float32
 
     def setup(self) -> None:
-        # TODO(SG): kernel axis for conv layers
         self.conv1 = layers.Conv(
             self.config.d_model,
             kernel_size=(3,),
@@ -760,14 +759,11 @@ class FlaxWhisperEncoder(nn.Module):
                 f" ({self.config.num_mel_bins}, {self.config.max_source_positions * 2}))"
             )
 
-        # input features: (bsz, num_mel, num_frames) = (bsz, 80, 3000)
-        input_features = input_features.transpose(0, 2, 1)  # (bsz, num_frames, num_mel) = (bsz, 3000, 80)
-        # conv1: kernel = (3, num_mel, d_model) = (3, 80, 384)
+        input_features = input_features.transpose(0, 2, 1)
         hidden_states = jax.nn.gelu(self.conv1(input_features), approximate=False)
-        # hidden states: (bsz, d_model, num_mel) = (bsz, 384, 80)
-        # conv2: kernel = (3, d_model, num_mel) = (3, 384, 384)
+        hidden_states = with_sharding_constraint(hidden_states, ("batch", "embed", "num_mel"))
         hidden_states = jax.nn.gelu(self.conv2(hidden_states), approximate=False)
-        # hidden_states: (bsz, num_frames / 2, d_model) = (bsz, 1500, 384)
+        hidden_states = with_sharding_constraint(hidden_states, ("batch", "length", "embed"))
 
         embed_positions = self.embed_positions(jnp.arange(self.config.max_source_positions))
         hidden_states = hidden_states + embed_positions
