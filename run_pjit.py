@@ -1,11 +1,9 @@
-from modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 import jax
 from jax.experimental import PartitionSpec as P
 
-from partitioner import PjitPartitioner
-from train_state import InferenceState
+from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
 
 # TODO: update for device
 model_parallel_submesh = (2, 2, 1, 1)

@@ -4,7 +4,7 @@ from jax.experimental.compilation_cache import compilation_cache as cc
 from flax.training.common_utils import shard
 
 from transformers import WhisperProcessor
-from modeling_flax_whisper_pmap import FlaxWhisperForConditionalGeneration
+from whisper_jax.modeling_flax_whisper_pmap import FlaxWhisperForConditionalGeneration
 from datasets import load_dataset, concatenate_datasets
 
 import time
