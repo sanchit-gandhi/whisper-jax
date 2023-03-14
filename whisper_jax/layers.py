@@ -1211,7 +1211,13 @@ class _Conv(nn.Module):
       raise ValueError('Mask needs to have the same shape as weights. '
                        f'Shapes are: {self.mask.shape}, {kernel_shape}')
 
-    kernel = param_with_axes('kernel', self.kernel_init, kernel_shape, self.params_dtype, axes=self.kernel_axes)
+    kernel = param_with_axes(
+        'kernel',
+        self.kernel_init,
+        kernel_shape,
+        self.params_dtype,
+        axes=self.kernel_axes,
+    )
 
     if self.mask is not None:
       kernel *= self.mask
@@ -1224,7 +1230,13 @@ class _Conv(nn.Module):
         # One bias weight per output entry, unshared betwen pixels.
         bias_shape = conv_output_shape[1:]
 
-      bias = param_with_axes('bias', self.bias_init, bias_shape, self.params_dtype, axes=(self.kernel_axes[-1],))
+      bias = param_with_axes(
+          'bias',
+          self.bias_init,
+          bias_shape,
+          self.params_dtype,
+          axes=(self.kernel_axes[-1],),
+      )
     else:
       bias = None
 

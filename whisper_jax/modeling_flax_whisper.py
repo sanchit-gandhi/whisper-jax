@@ -202,7 +202,7 @@ class FlaxWhisperAttention(nn.Module):
             axis=-1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
-            kernel_axes=("embed", "heads", "kv"),
+            kernel_axes=("embed", "joined_kv"),
         )
 
         self.q_proj = dense(use_bias=self.bias)
@@ -214,7 +214,7 @@ class FlaxWhisperAttention(nn.Module):
             axis=-1,  # TODO(SG): check this applies over the right axis (embed dim) and kernel axis
             dtype=self.dtype,
             params_dtype=self.params_dtype,
-            kernel_axes=("heads", "kv", "embed"),
+            kernel_axes=("joined_kv", "embed"),
             use_bias=self.bias,
         )
 
@@ -720,7 +720,7 @@ class FlaxWhisperEncoder(nn.Module):
             padding=1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
-            kernel_axes=("num_mel", "embed"),
+            kernel_axes=("channels", "num_mel", "embed"),
         )
         self.conv2 = layers.Conv(
             self.config.d_model,
@@ -729,7 +729,7 @@ class FlaxWhisperEncoder(nn.Module):
             padding=1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
-            kernel_axes=("embed", "num_mel"),
+            kernel_axes=("channels", "embed", "num_mel"),
         )
 
         self.dropout_layer = nn.Dropout(rate=self.config.dropout)

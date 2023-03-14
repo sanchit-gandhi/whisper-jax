@@ -17,9 +17,11 @@ logical_axis_rules_full = [
     # shard both activations and weight matrices on the remaining available axis
     ("embed", "model"),
     ("embed", "data"),
+    ("joined_kv", None),
     ("kv", None),
     ("length", None),
-    ("num_mel", None)
+    ("num_mel", None),
+    ("channels", None)
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
