@@ -198,7 +198,7 @@ class FlaxWhisperAttention(nn.Module):
 
         dense = partial(
             layers.DenseGeneral,
-            features=(self.num_heads, self.embed_dim),
+            self.embed_dim,
             axis=-1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
@@ -211,7 +211,7 @@ class FlaxWhisperAttention(nn.Module):
 
         self.out_proj = layers.DenseGeneral(
             self.embed_dim,
-            axis=(-2, -1),
+            axis=-1,
             dtype=self.dtype,
             params_dtype=self.params_dtype,
             kernel_axes=("joined_kv", "embed"),
@@ -311,7 +311,7 @@ class FlaxWhisperAttention(nn.Module):
         )
 
         attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, value_states)
-        #attn_output = self._merge_heads(attn_output)
+        attn_output = self._merge_heads(attn_output)
         attn_output = self.out_proj(attn_output)
 
         return attn_output, attn_weights
