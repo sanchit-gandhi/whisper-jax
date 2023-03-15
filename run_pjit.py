@@ -13,7 +13,7 @@ logical_axis_rules_full = [
     ("batch", "data"),
     ("mlp", "model"),
     ("heads", "model"),
-    ("vocab", "model"),
+    ("vocab", None),
     # shard both activations and weight matrices on the remaining available axis
     ("embed", "model"),
     ("embed", "data"),
@@ -90,5 +90,7 @@ p_generate = partitioner.partition(
 params = p_shard_params(freeze(params))
 
 inputs = jnp.ones((8, 80, 3000), dtype=jnp.bfloat16)
+
+gen_ids = p_generate(freeze(params), inputs)
 
 gen_ids = p_generate(freeze(params), inputs)

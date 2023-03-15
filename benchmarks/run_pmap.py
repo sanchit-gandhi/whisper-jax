@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 import jax
-from jax.experimental.compilation_cache import compilation_cache as cc
 from flax.training.common_utils import shard
 
 from transformers import WhisperProcessor
@@ -9,15 +8,12 @@ from datasets import load_dataset, concatenate_datasets
 
 import time
 
-
-cc.initialize_cache("./jax_cache")
-
 BATCH_SIZES = [4, 8, 16, 32, 64, 128]
 NUM_BATCHES = 100
 NUM_TOKENS = 25
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-tiny.en",
+    "openai/whisper-large-v2",
     _do_init=False,
     dtype=jnp.bfloat16,
 )
