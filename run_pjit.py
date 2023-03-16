@@ -1,22 +1,27 @@
+import time
+
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 import jax
-from jax.experimental import PartitionSpec as P
+from jax.sharding import PartitionSpec as P
+from jax.experimental.compilation_cache import compilation_cache as cc
 
 from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
+
+jax.config.update("jax_array", True)
+cc.initialize_cache("./jax_cache")
 
 # TODO: update for device
 model_parallel_submesh = (2, 2, 1, 1)
 
-# 2D parameter and activation partitioning
-logical_axis_rules_full = [
-    ("batch", "data"),
-    ("mlp", "model"),
-    ("heads", "model"),
+# 2D parameter and activation partitioning from PALM
+logical_axis_rules_palm = [
+    ("batch", None),
+    ("mlp", "data"),
+    ("heads", "data"),
     ("vocab", None),
-    # shard both activations and weight matrices on the remaining available axis
     ("embed", "model"),
-    ("embed", "data"),
+    ("embed", "model"),
     ("joined_kv", None),
     ("kv", None),
     ("length", None),
@@ -25,7 +30,7 @@ logical_axis_rules_full = [
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-tiny.en",
+    "openai/whisper-small.en",
     _do_init=False,
     dtype=jnp.bfloat16,
 )
@@ -67,7 +72,7 @@ state = InferenceState(
 
 partitioner = PjitPartitioner(
     model_parallel_submesh=model_parallel_submesh,
-    logical_axis_rules=logical_axis_rules_full
+    logical_axis_rules=logical_axis_rules_palm,
 )
 
 mesh_axes = partitioner.get_mesh_axes(state)
@@ -93,4 +98,7 @@ inputs = jnp.ones((8, 80, 3000), dtype=jnp.bfloat16)
 
 gen_ids = p_generate(freeze(params), inputs)
 
-gen_ids = p_generate(freeze(params), inputs)
+start = time.time()
+for i in range(100):
+    gen_ids = p_generate(freeze(params), inputs)
+print(f"{(time.time() - start):.06}")
