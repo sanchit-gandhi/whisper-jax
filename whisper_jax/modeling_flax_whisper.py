@@ -596,7 +596,7 @@ class FlaxWhisperDecoderLayer(nn.Module):
         # Cross-Attention Block
         cross_attn_weights = None
         if encoder_hidden_states is not None:
-            residual = hidden_states
+            residual = self_attn_output
 
             encoder_layer_norm_output = self.encoder_attn_layer_norm(self_attn_output)
             encoder_layer_norm_output = with_sharding_constraint(
