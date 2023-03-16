@@ -1,3 +1,4 @@
 from whisper_jax.modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from whisper_jax.partitioner import PjitPartitioner
 from whisper_jax.train_state import InferenceState
+from whisper_jax.pipeline import FlaxWhisperPipline

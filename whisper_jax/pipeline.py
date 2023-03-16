@@ -1,8 +1,3 @@
-import collections
-
-import ipdb
-import torch
-from datasets import Dataset
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 import jax
@@ -10,10 +5,9 @@ from jax.sharding import PartitionSpec as P
 from jax.experimental.compilation_cache import compilation_cache as cc
 from torch.utils.data import DataLoader
 
-from transformers import WhisperProcessor, AutomaticSpeechRecognitionPipeline
-from transformers.pipelines.base import pad_collate_fn, no_collate_fn
-from transformers.pipelines.pt_utils import PipelineDataset, PipelineIterator, PipelineChunkIterator, \
-    PipelinePackIterator
+from transformers import WhisperProcessor
+from transformers.pipelines.base import no_collate_fn
+from transformers.pipelines.pt_utils import PipelineIterator, PipelineChunkIterator, PipelinePackIterator
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
 from .train_state import InferenceState
@@ -23,7 +17,7 @@ import numpy as np
 from transformers.utils import logging
 
 jax.config.update("jax_array", True)
-#cc.initialize_cache("./jax_cache")
+cc.initialize_cache("./jax_cache")
 
 logger = logging.get_logger(__name__)
 
@@ -232,15 +226,7 @@ class FlaxWhisperPipline:
         )
         return {"text": text, **optional}
 
-    def run_single(self, inputs, preprocess_params, forward_params, postprocess_params):
-        all_outputs = []
-        for model_inputs in self.preprocess(inputs, **preprocess_params):
-            model_outputs = self.forward(model_inputs, **forward_params)
-            all_outputs.append(model_outputs)
-        outputs = self.postprocess(all_outputs, **postprocess_params)
-        return outputs
-
-    def forward(self, model_inputs, return_timestamps=False, generate_kwargs=None):
+    def forward(self, model_inputs, batch_size=None, return_timestamps=False, generate_kwargs=None):
         if generate_kwargs is None:
             generate_kwargs = {}
 
@@ -248,7 +234,15 @@ class FlaxWhisperPipline:
             generate_kwargs["return_timestamps"] = return_timestamps
         is_last = model_inputs.pop("is_last")
 
-        pred_ids = self.generate(model_inputs.pop("input_features"))
+        input_features = model_inputs.pop("input_features")
+
+        input_batch_size = input_features.shape[0]
+        # TODO(SG): handle variable batch lengths
+        if input_batch_size != batch_size:
+            padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
+            input_features = np.concatenate([input_features, padding])
+
+        pred_ids = self.generate(input_features)[:input_batch_size]
         out = {"tokens": np.asarray(pred_ids)}
 
         stride = model_inputs.pop("stride", None)
@@ -257,54 +251,16 @@ class FlaxWhisperPipline:
 
         return {"is_last": is_last, **out}
 
-    def __call__(self, inputs, chunk_length_s=0, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=4, num_workers=1):
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=4, num_workers=1):
         dataset = PipelineChunkIterator([inputs], self.preprocess, {"chunk_length_s": chunk_length_s, "stride_length_s": stride_length_s})
-        collate_fn = no_collate_fn if batch_size == 1 else pad_collate_fn(self.tokenizer, self.feature_extractor)
-        # TODO(SG): handle incomplete batches
-        dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn, drop_last=True)
-        model_iterator = PipelinePackIterator(dataloader, self.forward, {}, loader_batch_size=batch_size)
+        collate_fn = no_collate_fn if batch_size == 1 else pad_collate_fn()
+        dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn, drop_last=False)
+        model_iterator = PipelinePackIterator(dataloader, self.forward, {"batch_size": batch_size, "return_timestamps": return_timestamps}, loader_batch_size=batch_size)
         final_iterator = PipelineIterator(model_iterator, self.postprocess, {})
         return next(iter(final_iterator))
 
-def _pad(items, key, padding_value, padding_side):
-    batch_size = len(items)
-    if isinstance(items[0][key], torch.Tensor):
-        # Others include `attention_mask` etc...
-        shape = items[0][key].shape
-        dim = len(shape)
-        if key in ["pixel_values", "image"]:
-            # This is probable image so padding shouldn't be necessary
-            # B, C, H, W
-            return torch.cat([item[key] for item in items], dim=0)
-        elif dim == 4 and key == "input_features":
-            # this is probably a mel spectrogram batched
-            return torch.cat([item[key] for item in items], dim=0)
-        max_length = max(item[key].shape[1] for item in items)
-        min_length = min(item[key].shape[1] for item in items)
-        dtype = items[0][key].dtype
-
-        if dim == 2:
-            if max_length == min_length:
-                # Bypass for `ImageGPT` which doesn't provide a padding value, yet
-                # we can consistently pad since the size should be matching
-                return torch.cat([item[key] for item in items], dim=0)
-            tensor = torch.zeros((batch_size, max_length), dtype=dtype) + padding_value
-        elif dim == 3:
-            tensor = torch.zeros((batch_size, max_length, shape[-1]), dtype=dtype) + padding_value
-
-        for i, item in enumerate(items):
-            if dim == 2:
-                if padding_side == "left":
-                    tensor[i, -len(item[key][0]) :] = item[key][0].clone()
-                else:
-                    tensor[i, : len(item[key][0])] = item[key][0].clone()
-            elif dim == 3:
-                if padding_side == "left":
-                    tensor[i, -len(item[key][0]) :, :] = item[key][0].clone()
-                else:
-                    tensor[i, : len(item[key][0]), :] = item[key][0].clone()
-        return tensor
-    elif isinstance(items[0][key], np.ndarray):
+def _pad(items, key):
+    if isinstance(items[0][key], np.ndarray):
         if key == "input_features":
             # this is probably a mel spectrogram batched
             return np.concatenate([item[key] for item in items], axis=0)
@@ -312,37 +268,7 @@ def _pad(items, key, padding_value, padding_side):
         return [item[key] for item in items]
 
 
-def pad_collate_fn(tokenizer, feature_extractor):
-    # Tokenizer
-    t_padding_side = None
-    # Feature extractor
-    f_padding_side = None
-    if tokenizer is None and feature_extractor is None:
-        raise ValueError("Pipeline without tokenizer or feature_extractor cannot do batching")
-    if tokenizer is not None:
-        if tokenizer.pad_token_id is None:
-            raise ValueError(
-                "Pipeline with tokenizer without pad_token cannot do batching. You can try to set it with "
-                "`pipe.tokenizer.pad_token_id = model.config.eos_token_id`."
-            )
-        else:
-            t_padding_value = tokenizer.pad_token_id
-            t_padding_side = tokenizer.padding_side
-    if feature_extractor is not None:
-        # Feature extractor can be images, where no padding is expected
-        f_padding_value = getattr(feature_extractor, "padding_value", None)
-        f_padding_side = getattr(feature_extractor, "padding_side", None)
-
-    if t_padding_side is not None and f_padding_side is not None and t_padding_side != f_padding_side:
-        raise ValueError(
-            f"The feature extractor, and tokenizer don't agree on padding side {t_padding_side} != {f_padding_side}"
-        )
-    padding_side = "right"
-    if t_padding_side is not None:
-        padding_side = t_padding_side
-    if f_padding_side is not None:
-        padding_side = f_padding_side
-
+def pad_collate_fn():
     def inner(items):
         keys = set(items[0].keys())
         for item in items:
@@ -354,22 +280,6 @@ def pad_collate_fn(tokenizer, feature_extractor):
         # input_values, input_pixels, input_ids, ...
         padded = {}
         for key in keys:
-            if key in {"input_ids"}:
-                # ImageGPT uses a feature extractor
-                if tokenizer is None and feature_extractor is not None:
-                    _padding_value = f_padding_value
-                else:
-                    _padding_value = t_padding_value
-            elif key in {"input_values", "pixel_values", "input_features"}:
-                _padding_value = f_padding_value
-            elif key in {"p_mask", "special_tokens_mask"}:
-                _padding_value = 1
-            elif key in {"attention_mask", "token_type_ids"}:
-                _padding_value = 0
-            else:
-                # This is likely another random key maybe even user provided
-                _padding_value = 0
-            padded[key] = _pad(items, key, _padding_value, padding_side)
+            padded[key] = _pad(items, key)
         return padded
-
     return inner
