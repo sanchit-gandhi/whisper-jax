@@ -1,13 +1,10 @@
+import math
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 import jax
 from jax.sharding import PartitionSpec as P
-from jax.experimental.compilation_cache import compilation_cache as cc
-from torch.utils.data import DataLoader
 
 from transformers import WhisperProcessor
-from transformers.pipelines.base import no_collate_fn
-from transformers.pipelines.pt_utils import PipelineIterator, PipelineChunkIterator, PipelinePackIterator
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
 from .train_state import InferenceState
@@ -17,7 +14,6 @@ import numpy as np
 from transformers.utils import logging
 
 jax.config.update("jax_array", True)
-cc.initialize_cache("./jax_cache")
 
 logger = logging.get_logger(__name__)
 
@@ -35,26 +31,6 @@ logical_axis_rules_palm = (
     ("num_mel", None),
     ("channels", None)
 )
-
-
-def chunk_iter(inputs, feature_extractor, chunk_len, stride_left, stride_right):
-    inputs_len = inputs.shape[0]
-    step = chunk_len - stride_left - stride_right
-    for chunk_start_idx in range(0, inputs_len, step):
-        chunk_end_idx = chunk_start_idx + chunk_len
-        chunk = inputs[chunk_start_idx:chunk_end_idx]
-        processed = feature_extractor(chunk, sampling_rate=feature_extractor.sampling_rate, return_tensors="np")
-        _stride_left = 0 if chunk_start_idx == 0 else stride_left
-        # all right strides must be full, otherwise it is the last item
-        is_last = chunk_end_idx > inputs_len if stride_right > 0 else chunk_end_idx >= inputs_len
-        _stride_right = 0 if is_last else stride_right
-
-        chunk_len = chunk.shape[0]
-        stride = (chunk_len, _stride_left, _stride_right)
-        if chunk.shape[0] > _stride_left:
-            yield {"is_last": is_last, "stride": stride, **processed}
-        if is_last:
-            break
 
 
 class FlaxWhisperPipline:
@@ -148,14 +124,47 @@ class FlaxWhisperPipline:
         output_ids = self.p_generate(freeze(self.params), input_features).sequences
         return output_ids
 
-    def preprocess(self, inputs, chunk_length_s=0, stride_length_s=None):
+    def chunk_iter_with_batch(self, inputs, chunk_len, stride_left, stride_right, batch_size):
+        inputs_len = inputs.shape[0]
+        step = chunk_len - stride_left - stride_right
+
+        all_chunk_start_idx = np.arange(0, inputs_len, step)
+        num_samples = len(all_chunk_start_idx)
+
+        num_batches = math.ceil(num_samples / batch_size)
+        batch_idx = np.array_split(np.arange(num_samples), num_batches)
+
+        for i, idx in enumerate(batch_idx):
+            chunk_start_idx = all_chunk_start_idx[idx]
+
+            chunk_end_idx = chunk_start_idx + chunk_len
+
+            chunks = [inputs[chunk_start:chunk_end] for chunk_start, chunk_end in zip(chunk_start_idx, chunk_end_idx)]
+            processed = self.feature_extractor(chunks, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np")
+
+            _stride_left = np.where(chunk_start_idx == 0, 0, stride_left)
+            is_last = np.where(stride_right > 0, chunk_end_idx > inputs_len, chunk_end_idx >= inputs_len)
+            _stride_right = np.where(is_last, 0, stride_right)
+
+            chunk_lens = [chunk.shape[0] for chunk in chunks]
+            strides = [(chunk_l, _stride_l, _stride_r) for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)]
+
+            yield {"stride": strides, **processed}
+
+    def preprocess_batch(self, inputs, chunk_length_s=0, stride_length_s=None, batch_size=None):
         # TODO(SG): handle more generic input types, currently assume inputs is a dict {"array":, "sampling_rate":}
         array = inputs.get("array")
         in_sampling_rate = inputs.get("sampling_rate")
         stride = inputs.get("stride", None)
 
         if in_sampling_rate != self.feature_extractor.sampling_rate:
-            # TODO(SG): resampling ...
+            try:
+                import librosa
+                import soundfile as sf
+            except ImportError as err:
+                raise ImportError("To support resampling audio files, please install 'librosa' and 'soundfile'.") from err
+
+            array = librosa.resample(array, orig_sr=in_sampling_rate, target_sr=self.feature_extractor.sampling_rate)
             ratio = self.feature_extractor.sampling_rate / in_sampling_rate
         else:
             ratio = 1
@@ -184,8 +193,8 @@ class FlaxWhisperPipline:
             if chunk_len < stride_left + stride_right:
                 raise ValueError("Chunk length must be superior to stride length")
 
-            for item in chunk_iter(
-                array, self.feature_extractor, chunk_len, stride_left, stride_right,
+            for item in self.chunk_iter_with_batch(
+                    array, chunk_len, stride_left, stride_right, batch_size,
             ):
                 yield item
         else:
@@ -194,17 +203,11 @@ class FlaxWhisperPipline:
             )
             if stride is not None:
                 processed["stride"] = stride
-            yield {"is_last": True, **processed}
+            yield processed
 
-    def postprocess(
-        self, model_outputs, return_timestamps=None, return_language=None
-    ):
-        # Optional return types
-        final_items = []
-
-        for outputs in model_outputs:
-            items = np.array(outputs["tokens"])
-            final_items.append(items)
+    def postprocess(self, model_outputs, return_timestamps=None, return_language=None):
+        # unpack the outputs from list(dict(list)) to list(dict)
+        model_outputs = [dict(zip(output, t)) for output in model_outputs for t in zip(*output.values())]
 
         time_precision = self.feature_extractor.chunk_length / self.model.config.max_source_positions
         # Send the chunking back to seconds, it's easier to handle in whisper
@@ -227,12 +230,12 @@ class FlaxWhisperPipline:
         return {"text": text, **optional}
 
     def forward(self, model_inputs, batch_size=None, return_timestamps=False, generate_kwargs=None):
+        # We need to keep track of some additional input arguments for post-processing so need to forward these on after running generation
         if generate_kwargs is None:
             generate_kwargs = {}
 
         if return_timestamps:
             generate_kwargs["return_timestamps"] = return_timestamps
-        is_last = model_inputs.pop("is_last")
 
         input_features = model_inputs.pop("input_features")
 
@@ -243,43 +246,23 @@ class FlaxWhisperPipline:
             input_features = np.concatenate([input_features, padding])
 
         pred_ids = self.generate(input_features)[:input_batch_size]
-        out = {"tokens": np.asarray(pred_ids)}
+
+        # tokenizer's decode method expects an extra dim - we insert it here for convenience
+        out = {"tokens": np.asarray(pred_ids[:, None, :])}
 
         stride = model_inputs.pop("stride", None)
         if stride is not None:
             out["stride"] = stride
 
-        return {"is_last": is_last, **out}
+        return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=4, num_workers=1):
-        dataset = PipelineChunkIterator([inputs], self.preprocess, {"chunk_length_s": chunk_length_s, "stride_length_s": stride_length_s})
-        collate_fn = no_collate_fn if batch_size == 1 else pad_collate_fn()
-        dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn, drop_last=False)
-        model_iterator = PipelinePackIterator(dataloader, self.forward, {"batch_size": batch_size, "return_timestamps": return_timestamps}, loader_batch_size=batch_size)
-        final_iterator = PipelineIterator(model_iterator, self.postprocess, {})
-        return next(iter(final_iterator))
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=None):
+        dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
 
-def _pad(items, key):
-    if isinstance(items[0][key], np.ndarray):
-        if key == "input_features":
-            # this is probably a mel spectrogram batched
-            return np.concatenate([item[key] for item in items], axis=0)
-    else:
-        return [item[key] for item in items]
+        model_outputs = []
+        # iterate over our chunked audio samples
+        for batch in dataloader:
+            model_outputs.append(self.forward(batch, batch_size=batch_size))
 
-
-def pad_collate_fn():
-    def inner(items):
-        keys = set(items[0].keys())
-        for item in items:
-            if set(item.keys()) != keys:
-                raise ValueError(
-                    f"The elements of the batch contain different keys. Cannot batch them ({set(item.keys())} !="
-                    f" {keys})"
-                )
-        # input_values, input_pixels, input_ids, ...
-        padded = {}
-        for key in keys:
-            padded[key] = _pad(items, key)
-        return padded
-    return inner
+        post_processed = self.postprocess(model_outputs, return_timestamps=return_timestamps)
+        return post_processed
