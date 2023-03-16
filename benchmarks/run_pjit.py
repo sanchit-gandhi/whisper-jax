@@ -4,7 +4,8 @@ from datasets import load_dataset, concatenate_datasets
 from flax.core.frozen_dict import freeze
 import jax.numpy as jnp
 import jax
-from jax.experimental import PartitionSpec as P
+from jax.sharding import PartitionSpec as P
+from jax.experimental.compilation_cache import compilation_cache as cc
 from transformers import WhisperProcessor, WhisperConfig
 
 from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
@@ -12,44 +13,25 @@ from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, In
 import datasets
 datasets.logging.set_verbosity(datasets.logging.CRITICAL)
 
+cc.initialize_cache("./jax_cache")
+jax.config.update("jax_array", True)
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark Whisper large-v2")
     parser.add_argument(
         "--model_parallel_submesh",
         type=int,
         nargs='+',
-        default="2, 2, 1, 1",
+        default=(2, 2, 1, 1),
         help="Model parallel submesh.",
-    )
-    parser.add_argument(
-        "--use_palm",
-        action="store_true",
-        help="Whether to use PALM layout.",
-    )
-    parser.add_argument(
-        "--use_whisper",
-        action="store_true",
-        help="Whether to use Whipser layout.",
     )
     args = parser.parse_args()
     return args
 
-
-# 2D parameter and activation partitioning
-logical_axis_rules_full = [
-    ("batch", "data"),
-    ("mlp", "model"),
-    ("heads", "model"),
-    ("vocab", None),
-    # shard both activations and weight matrices on the remaining available axis
-    ("embed", "model"),
-    ("embed", "data"),
-    ("joined_kv", None),
-    ("kv", None),
-    ("length", None),
-    ("num_mel", None),
-    ("channels", None)
-]
+BATCH_SIZES = [4, 8, 16, 32]
+NUM_BATCHES = 100
+NUM_TOKENS = 25
+CHECKPOINT = "small.en"
 
 # 2D parameter and activation partitioning from PALM
 logical_axis_rules_palm = [
@@ -66,30 +48,9 @@ logical_axis_rules_palm = [
     ("channels", None)
 ]
 
-# 2D parameter and activation partitioning from PALM
-logical_axis_rules_whisper = [
-    ("batch", None),
-    ("mlp", "data"),
-    ("heads", "data"),
-    ("vocab", None),
-    ("embed", "model"),
-    ("embed", "model"),
-    ("joined_kv", None),
-    ("kv", None),
-    ("length", "model"),
-    ("num_mel", None),
-    ("channels", None)
-]
-
-BATCH_SIZES = [4, 8, 16, 32]
-NUM_BATCHES = 100
-NUM_TOKENS = 25
-CHECKPOINT = "large-v2"
-
 def main():
     args = parse_args()
     print(args.model_parallel_submesh)
-    print(args.use_palm)
     # processors/tokenizers are the same for all models, so just load from tiny and preprocess once
     processor = WhisperProcessor.from_pretrained("openai/whisper-tiny.en")
 
@@ -142,15 +103,9 @@ def main():
         flax_mutables_axes=param_axes,
     )
 
-    logical_axis_rules = logical_axis_rules_full
-    if args.use_palm:
-        logical_axis_rules = logical_axis_rules_palm
-    if args.use_whisper:
-        logical_axis_rules = logical_axis_rules_whisper
-
     partitioner = PjitPartitioner(
         model_parallel_submesh=tuple(args.model_parallel_submesh),
-        logical_axis_rules=logical_axis_rules,
+        logical_axis_rules=logical_axis_rules_palm,
     )
 
     mesh_axes = partitioner.get_mesh_axes(state)
