@@ -11,17 +11,17 @@ from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, In
 jax.config.update("jax_array", True)
 cc.initialize_cache("./jax_cache")
 
-# TODO: update for device
-model_parallel_submesh = (2, 2, 1, 1)
+# Don't partition the model for DP
+num_partitions = 1
 
-# 2D parameter and activation partitioning from PALM
-logical_axis_rules_palm = [
-    ("batch", None),
-    ("mlp", "data"),
-    ("heads", "data"),
+# 2D parameter and activation partitioning for DP
+logical_axis_rules_dp = [
+    ("batch", "data"),
+    ("mlp", None),
+    ("heads", None),
     ("vocab", None),
-    ("embed", "model"),
-    ("embed", "model"),
+    ("embed", None),
+    ("embed", None),
     ("joined_kv", None),
     ("kv", None),
     ("length", None),
@@ -71,8 +71,8 @@ state = InferenceState(
 )
 
 partitioner = PjitPartitioner(
-    model_parallel_submesh=model_parallel_submesh,
-    logical_axis_rules=logical_axis_rules_palm,
+    num_partitions=1,
+    logical_axis_rules=logical_axis_rules_dp,
 )
 
 mesh_axes = partitioner.get_mesh_axes(state)

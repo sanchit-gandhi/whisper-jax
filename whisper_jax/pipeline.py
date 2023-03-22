@@ -17,14 +17,14 @@ jax.config.update("jax_array", True)
 
 logger = logging.get_logger(__name__)
 
-# 2D parameter and activation partitioning from PALM
-logical_axis_rules_palm = (
-    ("batch", None),
-    ("mlp", "data"),
-    ("heads", "data"),
+# 2D parameter and activation partitioning for DP
+logical_axis_rules_dp = (
+    ("batch", "data"),
+    ("mlp", None),
+    ("heads", None),
     ("vocab", None),
-    ("embed", "model"),
-    ("embed", "model"),
+    ("embed", None),
+    ("embed", None),
     ("joined_kv", None),
     ("kv", None),
     ("length", None),
@@ -38,13 +38,13 @@ class FlaxWhisperPipline:
         self,
         checkpoint="openai/whisper-large-v2",
         dtype=jnp.bfloat16,
-        model_parallel_submesh=(1, 1, 1, 1),
-        logical_axis_rules=logical_axis_rules_palm,
+        num_mp_partitions=1,
+        logical_axis_rules=logical_axis_rules_dp,
         max_length=None,
     ):
         self.checkpoint = checkpoint
         self.dtype = dtype
-        self.model_parallel_submesh = model_parallel_submesh
+        self.num_mp_partitions = num_mp_partitions
         self.logical_axis_rules = logical_axis_rules
 
         self.processor = WhisperProcessor.from_pretrained(self.checkpoint)
@@ -96,7 +96,7 @@ class FlaxWhisperPipline:
         )
 
         partitioner = PjitPartitioner(
-            model_parallel_submesh=self.model_parallel_submesh,
+            num_partitions=self.num_mp_partitions,
             logical_axis_rules=self.logical_axis_rules
         )
 
@@ -256,7 +256,7 @@ class FlaxWhisperPipline:
 
         return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=None):
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, return_timestamps=None, return_language=None, generate_kwargs=None):
         dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
 
         model_outputs = []
