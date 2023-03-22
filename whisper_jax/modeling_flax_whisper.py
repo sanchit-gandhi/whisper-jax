@@ -31,7 +31,7 @@ from jax.random import PRNGKey
 from whisper_jax.layers import with_sharding_constraint
 
 from transformers import WhisperConfig
-from transformers.generation.flax_logits_process import FlaxWhisperTimeStampLogitsProcessor
+from transformers.generation.flax_logits_process import FlaxWhisperTimeStampLogitsProcessor, FlaxLogitsProcessorList, FlaxLogitsProcessor
 from transformers.modeling_flax_outputs import (
     FlaxBaseModelOutput,
     FlaxBaseModelOutputWithPastAndCrossAttentions,
@@ -177,6 +177,57 @@ WHISPER_DECODE_INPUTS_DOCSTRING = r"""
             Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
 """
 
+class FlaxStaticForceTokensLogitsProcessor(FlaxLogitsProcessor):
+    r"""
+    [`FlaxLogitsProcessor`] that takes a list of pairs of integers which indicates a mapping from generation indices to
+    token indices that will be forced before sampling. The processor will set their log probs to 0 and all other tokens
+    to `-inf` so that they are sampled at their corresponding index. This is a static version of the `transformers` logit
+    processor [`FlaxForceTokensLogitsProcessor`] that is compatible with sharded forced tokens.
+
+    Args:
+        force_token_map (`list`):
+            Map giving token ids and indices where they will be forced to be sampled.
+    """
+
+    def __init__(self, force_token_map):
+        # The generic `transformers` logit processor builds `force_token_array` as a dictionary - this is not a valid
+        # JAX type, and so we switch to using a JAX array instead
+        force_token_map = jnp.array(force_token_map)
+        # Converts the array of format [[index, token]] containing the tokens to be forced to an array, where the
+        # index of the array corresponds to the index of the token to be forced. For XLA compatibility,
+        # indexes without forced tokens will have a negative value. Note that the last token we ever need to force in
+        # Whisper is at position 3, so we only construct an array up to this index. The native version constructs a tensor
+        # dynamically according to the length of the `force_token_map`. Array shapes need to be concrete for XLA compatibility,
+        # so this is not permitted here.
+        force_token_array = jnp.ones(3, dtype=jnp.int32) * -1
+        for index, token in force_token_map:
+            force_token_array = force_token_array.at[index].set(token)
+        self.force_token_array = jnp.int32(force_token_array)
+
+    def __call__(self, input_ids: jnp.ndarray, scores: jnp.ndarray, cur_len: int) -> jnp.ndarray:
+        def _force_token(generation_idx):
+            batch_size = scores.shape[0]
+            current_token = self.force_token_array[generation_idx]
+
+            new_scores = jnp.ones_like(scores, dtype=scores.dtype) * -float("inf")
+            updates = jnp.zeros((batch_size, 1), dtype=scores.dtype)
+            new_scores = lax.dynamic_update_slice(new_scores, updates, (0, current_token))
+            return new_scores
+
+        scores = lax.cond(
+            cur_len >= self.force_token_array.shape[0],
+            # If the current length is geq than the length of force_token_array, the processor does nothing.
+            lambda: scores,
+            # Otherwise, it may force a certain token.
+            lambda: lax.cond(
+                self.force_token_array[cur_len] >= 0,
+                # Only valid (positive) tokens are forced
+                lambda: _force_token(cur_len),
+                # Otherwise, the processor does nothing.
+                lambda: scores,
+            ),
+        )
+        return scores
 
 class FlaxWhisperAttention(nn.Module):
     config: WhisperConfig
@@ -1520,6 +1571,36 @@ class FlaxWhisperForConditionalGeneration(FlaxWhisperPreTrainedModel):
 
         if len(forced_decoder_ids) > 0:
             generation_config.forced_decoder_ids = forced_decoder_ids
+
+        return super().generate(
+            input_features,
+            generation_config,
+            logits_processor=logits_processor,
+            **kwargs,
+        )
+
+    def pipeline_generate(
+            self,
+            input_features,
+            forced_decoder_ids,
+            return_timestamps=False,
+            generation_config=None,
+            **kwargs,
+    ):
+        if generation_config is None:
+            generation_config = self.generation_config
+
+        # override the generation config forced decoder ids in preference of the ones we have set
+        generation_config.forced_decoder_ids = None
+
+        logits_processor = FlaxLogitsProcessorList()
+
+        logits_processor.append(FlaxStaticForceTokensLogitsProcessor(forced_decoder_ids))
+
+        if hasattr(generation_config, "return_timestamps") and return_timestamps:
+            logits_processor.append(
+                FlaxWhisperTimeStampLogitsProcessor(generation_config, self.config, 1)
+            )
 
         return super().generate(
             input_features,

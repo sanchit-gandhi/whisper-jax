@@ -107,24 +107,58 @@ class FlaxWhisperPipline:
 
         self.p_shard_params = partitioner.partition(self.model.to_bf16, (params_spec,), params_spec)
 
-        def generate(params, input_features):
-            # TODO(SG): add task and language (static argnums?)
-            output_ids = self.model.generate(input_features, params=params, max_length=self.max_length)
+        def generate(params, input_features, forced_decoder_ids, return_timestamps):
+            output_ids = self.model.pipeline_generate(
+                input_features,
+                params=params,
+                forced_decoder_ids=forced_decoder_ids,
+                return_timestamps=return_timestamps,
+                max_length=self.max_length,
+            )
             return output_ids
 
         self.p_generate = partitioner.partition(
             generate,
-            in_axis_resources=(params_spec, P("data")),
+            in_axis_resources=(params_spec, P("data"), None),
             out_axis_resources=P("data"),
+            static_argnums=(3,),
         )
 
     def shard_params(self):
         # This will auto-magically run in mesh context
         self.params = self.p_shard_params(freeze(self.params))
 
-    def generate(self, input_features):
-        output_ids = self.p_generate(freeze(self.params), input_features).sequences
+    def generate(self, input_features, language=None, task=None, return_timestamps=False):
+        forced_decoder_ids = self.get_forced_decoder_ids(language=language, task=task, return_timestamps=return_timestamps)
+        output_ids = self.p_generate(freeze(self.params), input_features, forced_decoder_ids, return_timestamps).sequences
         return output_ids
+
+    def get_forced_decoder_ids(self, generation_config=None, task=None, language=None, return_timestamps=False):
+        if generation_config is None:
+            generation_config = self.model.generation_config
+
+        if hasattr(generation_config, "is_multilingual"):
+            is_multilingual = generation_config.is_multilingual
+        else:
+            is_multilingual = None
+
+        forced_decoder_ids = []
+
+        if is_multilingual:
+            if language is not None:
+                forced_decoder_ids.append((1, generation_config.lang_to_id[language]))
+
+            if task is not None:
+                forced_decoder_ids.append((2, generation_config.task_to_id[task]))
+            else:
+                forced_decoder_ids.append((2, generation_config.task_to_id["transcribe"]))
+
+        if not return_timestamps:
+            if forced_decoder_ids and forced_decoder_ids[-1][0] != generation_config.no_timestamps_token_id:
+                idx = forced_decoder_ids[-1][0] + 1 if forced_decoder_ids else 1
+                forced_decoder_ids.append((idx, generation_config.no_timestamps_token_id))
+
+        return forced_decoder_ids
 
     def chunk_iter_with_batch(self, inputs, chunk_len, stride_left, stride_right, batch_size):
         inputs_len = inputs.shape[0]
@@ -231,7 +265,7 @@ class FlaxWhisperPipline:
         )
         return {"text": text, **optional}
 
-    def forward(self, model_inputs, batch_size=None):
+    def forward(self, model_inputs, batch_size=None, language=None, task=None, return_timestamps=False):
         # We need to keep track of some additional input arguments for post-processing so need to forward these on after running generation
         input_features = model_inputs.pop("input_features")
         input_batch_size = input_features.shape[0]
@@ -240,7 +274,7 @@ class FlaxWhisperPipline:
             padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
             input_features = np.concatenate([input_features, padding])
 
-        pred_ids = self.generate(input_features)[:input_batch_size]
+        pred_ids = self.generate(input_features, language=language, task=task, return_timestamps=return_timestamps)[:input_batch_size]
 
         # tokenizer's decode method expects an extra dim - we insert it here for convenience
         out = {"tokens": np.asarray(pred_ids[:, None, :])}
@@ -251,13 +285,13 @@ class FlaxWhisperPipline:
 
         return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, return_timestamps=None, generate_kwargs=None):
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, language=None, task=None, return_timestamps=None, generate_kwargs=None):
         dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
 
         model_outputs = []
         # iterate over our chunked audio samples
         for batch in dataloader:
-            model_outputs.append(self.forward(batch, batch_size=batch_size))
+            model_outputs.append(self.forward(batch, batch_size=batch_size, language=language, task=task, return_timestamps=return_timestamps))
 
         post_processed = self.postprocess(model_outputs, return_timestamps=return_timestamps)
         return post_processed
