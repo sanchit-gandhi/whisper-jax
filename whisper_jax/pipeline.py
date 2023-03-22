@@ -5,6 +5,8 @@ import jax
 from jax.sharding import PartitionSpec as P
 
 from transformers import WhisperProcessor
+from transformers.generation.flax_logits_process import FlaxWhisperTimeStampLogitsProcessor, \
+    FlaxForceTokensLogitsProcessor
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
 from .train_state import InferenceState
@@ -229,16 +231,9 @@ class FlaxWhisperPipline:
         )
         return {"text": text, **optional}
 
-    def forward(self, model_inputs, batch_size=None, return_timestamps=False, generate_kwargs=None):
+    def forward(self, model_inputs, batch_size=None):
         # We need to keep track of some additional input arguments for post-processing so need to forward these on after running generation
-        if generate_kwargs is None:
-            generate_kwargs = {}
-
-        if return_timestamps:
-            generate_kwargs["return_timestamps"] = return_timestamps
-
         input_features = model_inputs.pop("input_features")
-
         input_batch_size = input_features.shape[0]
         # TODO(SG): handle variable batch lengths
         if input_batch_size != batch_size:
@@ -256,7 +251,7 @@ class FlaxWhisperPipline:
 
         return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, return_timestamps=None, return_language=None, generate_kwargs=None):
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, return_timestamps=None, generate_kwargs=None):
         dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
 
         model_outputs = []
