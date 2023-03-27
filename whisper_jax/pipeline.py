@@ -5,13 +5,14 @@ import jax
 from jax.sharding import PartitionSpec as P
 
 from transformers import WhisperProcessor
-from transformers.generation.flax_logits_process import FlaxWhisperTimeStampLogitsProcessor, \
-    FlaxForceTokensLogitsProcessor
+from transformers.pipelines.audio_utils import ffmpeg_read
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
 from .train_state import InferenceState
 
 import numpy as np
+
+import requests
 
 from transformers.utils import logging
 
@@ -188,22 +189,54 @@ class FlaxWhisperPipline:
             yield {"stride": strides, **processed}
 
     def preprocess_batch(self, inputs, chunk_length_s=0, stride_length_s=None, batch_size=None):
-        # TODO(SG): handle more generic input types, currently assume inputs is a dict {"array":, "sampling_rate":}
-        array = inputs.get("array")
-        in_sampling_rate = inputs.get("sampling_rate")
-        stride = inputs.get("stride", None)
+        if isinstance(inputs, str):
+            if inputs.startswith("http://") or inputs.startswith("https://"):
+                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
+                # like http_huggingface_co.png
+                inputs = requests.get(inputs).content
+            else:
+                with open(inputs, "rb") as f:
+                    inputs = f.read()
 
-        if in_sampling_rate != self.feature_extractor.sampling_rate:
-            try:
-                import librosa
-                import soundfile as sf
-            except ImportError as err:
-                raise ImportError("To support resampling audio files, please install 'librosa' and 'soundfile'.") from err
+        if isinstance(inputs, bytes):
+            inputs = ffmpeg_read(inputs, self.feature_extractor.sampling_rate)
 
-            array = librosa.resample(array, orig_sr=in_sampling_rate, target_sr=self.feature_extractor.sampling_rate)
-            ratio = self.feature_extractor.sampling_rate / in_sampling_rate
-        else:
-            ratio = 1
+        stride = None
+        if isinstance(inputs, dict):
+            stride = inputs.pop("stride", None)
+            # Accepting `"array"` which is the key defined in `datasets` for
+            # better integration
+            if not ("sampling_rate" in inputs and ("raw" in inputs or "array" in inputs)):
+                raise ValueError(
+                    "When passing a dictionary to AutomaticSpeechRecognitionPipeline, the dict needs to contain a "
+                    '"raw" key containing the numpy array representing the audio and a "sampling_rate" key, '
+                    "containing the sampling_rate associated with that array"
+                )
+
+            _inputs = inputs.pop("raw", None)
+            if _inputs is None:
+                # Remove path which will not be used from `datasets`.
+                inputs.pop("path", None)
+                _inputs = inputs.pop("array", None)
+            in_sampling_rate = inputs.pop("sampling_rate")
+            inputs = _inputs
+
+            if in_sampling_rate != self.feature_extractor.sampling_rate:
+                try:
+                    import librosa
+                    import soundfile as sf
+                except ImportError as err:
+                    raise ImportError("To support resampling audio files, please install 'librosa' and 'soundfile'.") from err
+
+                inputs = librosa.resample(inputs, orig_sr=in_sampling_rate, target_sr=self.feature_extractor.sampling_rate)
+                ratio = self.feature_extractor.sampling_rate / in_sampling_rate
+            else:
+                ratio = 1
+
+        if not isinstance(inputs, np.ndarray):
+            raise ValueError(f"We expect a numpy ndarray as input, got `{type(inputs)}`")
+        if len(inputs.shape) != 1:
+            raise ValueError("We expect a single channel audio input for AutomaticSpeechRecognitionPipeline")
 
         if stride is not None:
             if stride[0] + stride[1] > inputs.shape[0]:
@@ -230,12 +263,12 @@ class FlaxWhisperPipline:
                 raise ValueError("Chunk length must be superior to stride length")
 
             for item in self.chunk_iter_with_batch(
-                    array, chunk_len, stride_left, stride_right, batch_size,
+                    inputs, chunk_len, stride_left, stride_right, batch_size,
             ):
                 yield item
         else:
             processed = self.feature_extractor(
-                array, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np"
+                inputs, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np"
             )
             if stride is not None:
                 processed["stride"] = stride
@@ -269,7 +302,7 @@ class FlaxWhisperPipline:
         # We need to keep track of some additional input arguments for post-processing so need to forward these on after running generation
         input_features = model_inputs.pop("input_features")
         input_batch_size = input_features.shape[0]
-        # TODO(SG): handle variable batch lengths
+        # TODO(SG): handle variable batch lengths?
         if input_batch_size != batch_size:
             padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
             input_features = np.concatenate([input_features, padding])
@@ -285,7 +318,7 @@ class FlaxWhisperPipline:
 
         return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=4, language=None, task=None, return_timestamps=None, generate_kwargs=None):
+    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=8, language=None, task=None, return_timestamps=None, generate_kwargs=None):
         dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
 
         model_outputs = []

@@ -2,8 +2,7 @@ import jax.numpy as jnp
 import jax
 from flax.training.common_utils import shard
 
-from transformers import WhisperProcessor
-from whisper_jax.modeling_flax_whisper_pmap import FlaxWhisperForConditionalGeneration
+from transformers import FlaxWhisperForConditionalGeneration, WhisperProcessor
 from datasets import load_dataset, concatenate_datasets
 
 import time
