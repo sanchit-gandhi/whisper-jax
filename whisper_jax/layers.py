@@ -42,6 +42,13 @@ DType = jnp.dtype
 PRNGKey = jnp.ndarray
 Shape = Iterable[int]
 Activation = Callable[..., Array]
+PrecisionLike = Union[None, str, lax.Precision, Tuple[str, str],
+                      Tuple[lax.Precision, lax.Precision]]
+DotGeneralT = Callable[..., Array]
+ConvGeneralDilatedT = Callable[..., Array]
+PaddingLike = Union[str, int, Sequence[Union[int, Tuple[int, int]]]]
+LaxPadding = Union[str, Sequence[Tuple[int, int]]]
+
 # Parameter initializers.
 Initializer = Callable[[PRNGKey, Shape, DType], Array]
 InitializerAxis = Union[int, Tuple[int, ...]]
@@ -992,18 +999,6 @@ def make_decoder_mask(decoder_target_tokens: Array,
   return combine_masks(*masks, dtype=dtype)
 
 
-PRNGKey = Any
-Shape = Tuple[int, ...]
-Dtype = Any  # this could be a real type?
-Array = Any
-PrecisionLike = Union[None, str, lax.Precision, Tuple[str, str],
-                      Tuple[lax.Precision, lax.Precision]]
-DotGeneralT = Callable[..., Array]
-ConvGeneralDilatedT = Callable[..., Array]
-
-PaddingLike = Union[str, int, Sequence[Union[int, Tuple[int, int]]]]
-LaxPadding = Union[str, Sequence[Tuple[int, int]]]
-
 def canonicalize_padding(padding: PaddingLike, rank: int) -> LaxPadding:
   """"Canonicalizes conv padding to a jax.lax supported format."""
   if isinstance(padding, str):
@@ -1080,11 +1075,11 @@ class _Conv(nn.Module):
   feature_group_count: int = 1
   use_bias: bool = True
   mask: Optional[Array] = None
-  dtype: Optional[Dtype] = None
-  params_dtype: Dtype = jnp.float32
+  dtype: Optional[DType] = None
+  params_dtype: DType = jnp.float32
   precision: PrecisionLike = None
-  kernel_init: Callable[[PRNGKey, Shape, Dtype], Array] = nn.initializers.lecun_normal()
-  bias_init: Callable[[PRNGKey, Shape, Dtype], Array] = nn.initializers.zeros
+  kernel_init: Callable[[PRNGKey, Shape, DType], Array] = nn.initializers.lecun_normal()
+  bias_init: Callable[[PRNGKey, Shape, DType], Array] = nn.initializers.zeros
   conv_general_dilated: ConvGeneralDilatedT = lax.conv_general_dilated
   kernel_axes: Tuple[str, ...] = ()
 
