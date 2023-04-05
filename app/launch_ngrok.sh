@@ -1,0 +1,1 @@
+ngrok http --subdomain=whisper-jax 8000
