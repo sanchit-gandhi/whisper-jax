@@ -5,14 +5,14 @@ from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 
 title = "Whisper JAX: The Fastest Whisper API Available ⚡️"
 
-description = """Gradio Demo for Whisper JAX. Whisper JAX is an optimised JAX implementation of the Whisper model by OpenAI. It runs on a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **12x** faster, making it the fastest Whisper API available.
+description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **12x** faster, making it the fastest Whisper API available.
 
-You can submit requests to Whisper JAX through this Gradio Demo, or directly through API calls (see below).
+You can submit requests to Whisper JAX through this Gradio Demo, or directly through API calls (see below). This notebook demonstrates how you can run the Whisper JAX model yourself on a TPU v2-8 in a Google Colab: TODO.
 """
 
 API_URL = "https://whisper-jax.ngrok.io/generate/"
 
-article = """## Python API call:
+api_info = """## Python API call:
 ```python
 import requests
 
@@ -51,9 +51,11 @@ fetch("{URL}", {
 curl -X POST -d '{"inputs": "/path/to/file/audio.mp3", "task": "transcribe", "return_timestamps": false}' {URL} -H "content-type: application/json"
 ```
 """
-article = article.replace("{URL}", API_URL)
+api_info = api_info.replace("{URL}", API_URL)
+article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme."
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
+SAMPLING_RATE = 16000
 
 
 def query(payload):

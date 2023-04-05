@@ -40,25 +40,23 @@ def check_inputs(inputs, language, task, return_timestamps):
                 ),
             )
 
-        if isinstance(inputs["array"], str):
-            # TODO(SG): check dtype for the string
-            inputs["array"] = np.fromstring(inputs["array"], dtype=np.int16)
-
         if isinstance(inputs["array"], list):
-            inputs["array"] = np.array(inputs["array"], dtype=np.int16)
+            audio = np.array(inputs["array"], dtype=np.int16)
+            inputs["array"] = (audio - np.mean(audio)) / np.std(audio)
 
         if not isinstance(inputs["array"], np.ndarray):
             raise HTTPException(
-                status_code=418, detail=f"We expect a numpy ndarray as input, got `{type(inputs['array'])}`"
+                status_code=418, detail=f"We expect a numpy ndarray as input, got {str(type(inputs['array']))}"
             )
 
         if len(inputs["array"].shape) != 1:
-            raise HTTPException(status_code=418, detail=
-                f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs['array'].shape)} channels."
+            raise HTTPException(
+                status_code=418,
+                detail=f"We expect a single channel audio input for the Flax Whisper API, got {str(len(inputs['array'].shape))} channels.",
             )
-    else:
+    """else:
         raise HTTPException(status_code=418, detail=
-        f"We expect an audio input in the form of bytes or dictionary, but got {type(inputs)}.")
+        f"We expect an audio input in the form of bytes or dictionary, but got {str(type(inputs))}.")"""
 
     language_token = None
     if language is not None:
