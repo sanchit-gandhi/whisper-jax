@@ -2,14 +2,19 @@ import jax.numpy as jnp
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
+from transformers.pipelines.audio_utils import ffmpeg_read
 
 from whisper_jax import FlaxWhisperPipline
 
 
+# TODO(SG): switch to large checkpoint
 checkpoint = "openai/whisper-tiny"
 
 pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16)
 pipeline.shard_params()
+
+language_codes = {lang: f"<|{TO_LANGUAGE_CODE[lang]}|>" for lang in TO_LANGUAGE_CODE}
+generation_config = pipeline.model.generation_config
 
 app = FastAPI()
 
@@ -19,41 +24,67 @@ def read_root():
     return {"Hello": "World"}
 
 
-language_codes = [f"<|{lang_id}|>" for lang_id in TO_LANGUAGE_CODE.values()]
-
-
 def check_inputs(inputs, language, task, return_timestamps):
     # required pre-processing to handle different input types efficiently over requests
+    if isinstance(inputs, bytes):
+        inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+
     if isinstance(inputs, dict):
         if not ("sampling_rate" in inputs and "array" in inputs):
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    "When passing a dictionary as inputs, the dict needs to contain an "
-                    '"array" key containing the numpy array representing the audio, and a "sampling_rate" key, '
-                    "containing the sampling_rate associated with that array"
+                    "When passing a dictionary as inputs, the dictionary needs to contain an "
+                    '"array" key containing the numpy array representing the audio, and a "sampling_rate" key '
+                    "containing the sampling rate associated with the audio array."
                 ),
             )
 
         if isinstance(inputs["array"], str):
+            # TODO(SG): check dtype for the string
             inputs["array"] = np.fromstring(inputs["array"], dtype=np.int16)
 
         if not isinstance(inputs["array"], np.ndarray):
-            raise HTTPException(status_code=404, detail=f"We expect a numpy ndarray as input, got `{type(inputs)}`")
+            raise HTTPException(status_code=404, detail=f"We expect a numpy ndarray as input, got `{type(inputs['array'])}`")
 
-        if len(inputs.shape) != 1:
-            raise ValueError("We expect a single channel audio input for AutomaticSpeechRecognitionPipeline")
+        if len(inputs["array"].shape) != 1:
+            raise ValueError(
+                f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs['array'].shape)} channels."
+            )
 
+    language_token = None
     if language is not None:
-        if not isinstance("language", str) or language not in language_codes:
+        if not isinstance(language, str):
             raise HTTPException(
-                status_code=404, detail=("language argument should be in ")
-            )  # TODO(SG): handle language as string
+                status_code=404,
+                detail=f"Unsupported language: {language}. Language should be one of: {list(TO_LANGUAGE_CODE.keys())}.",
+            )
+        language = language.lower()
+        if language in generation_config.lang_to_id.keys():
+            language_token = language
+        elif language in TO_LANGUAGE_CODE.values():
+            language_token = f"<|{language}|>"
+        elif language in TO_LANGUAGE_CODE.keys():
+            language_token = f"<|{TO_LANGUAGE_CODE[language]}|>"
+        else:
+            if len(language) == 2:
+                # ISO 639-1 language code
+                acceptable_languages = list(TO_LANGUAGE_CODE.values())
+            elif "<" in language or "|" in language or ">" in language:
+                # generation config language code
+                acceptable_languages = list(generation_config.lang_to_id.keys())
+            else:
+                # language passed as a string
+                acceptable_languages = list(TO_LANGUAGE_CODE.keys())
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unsupported language: {language}. Language should be one of:" f" {acceptable_languages}.",
+            )
 
     if task is not None:
         if not isinstance("task", str) or task not in ["transcribe", "translate"]:
             raise HTTPException(
-                status_code=404, detail=(f"task argument should be either" f'"transcribe" or "translate", got {task}.')
+                status_code=404, detail=f"Unsupported task {task}. Task should be one of: ['transcribe', 'translate']"
             )
 
     if return_timestamps is not None:
@@ -65,6 +96,8 @@ def check_inputs(inputs, language, task, return_timestamps):
                 ),
             )
 
+    return inputs, language_token, task, return_timestamps
+
 
 @app.post("/generate/")
 async def generate(request: Request):
@@ -74,7 +107,7 @@ async def generate(request: Request):
     task = content.get("task", "transcribe")
     return_timestamps = content.get("return_timestamps", False)
 
-    check_inputs(inputs, language, task, return_timestamps)
+    inputs, language_token, task, return_timestamps= check_inputs(inputs, language, task, return_timestamps)
 
     generation = pipeline(inputs, language=language, task=task, return_timestamps=return_timestamps)
     out = [generation]

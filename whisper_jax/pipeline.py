@@ -7,6 +7,7 @@ import requests
 from flax.core.frozen_dict import freeze
 from jax.sharding import PartitionSpec as P
 from transformers import WhisperProcessor
+from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
 from transformers.utils import logging
 
@@ -151,7 +152,27 @@ class FlaxWhisperPipline:
 
         if is_multilingual:
             if language is not None:
-                forced_decoder_ids.append((1, generation_config.lang_to_id[language]))
+                language = language.lower()
+                if language in generation_config.lang_to_id.keys():
+                    language_token = language
+                elif language in TO_LANGUAGE_CODE.values():
+                    language_token = f"<|{language}|>"
+                elif language in TO_LANGUAGE_CODE.keys():
+                    language_token = f"<|{TO_LANGUAGE_CODE[language]}|>"
+                else:
+                    if len(language) == 2:
+                        # ISO 639-1 language code
+                        acceptable_languages = list(TO_LANGUAGE_CODE.values())
+                    elif "<" in language or "|" in language or ">" in language:
+                        # generation config language code
+                        acceptable_languages = list(generation_config.lang_to_id.keys())
+                    else:
+                        # language passed as a string
+                        acceptable_languages = list(TO_LANGUAGE_CODE.keys())
+                    raise ValueError(
+                        f"Unsupported language: {language}. Language should be one of:" f" {acceptable_languages}."
+                    )
+                forced_decoder_ids.append((1, generation_config.lang_to_id[language_token]))
 
             if task is not None:
                 forced_decoder_ids.append((2, generation_config.task_to_id[task]))
@@ -217,9 +238,9 @@ class FlaxWhisperPipline:
             # better integration
             if not ("sampling_rate" in inputs and ("raw" in inputs or "array" in inputs)):
                 raise ValueError(
-                    "When passing a dictionary to AutomaticSpeechRecognitionPipeline, the dict needs to contain a "
-                    '"raw" key containing the numpy array representing the audio and a "sampling_rate" key, '
-                    "containing the sampling_rate associated with that array"
+                    "When passing a dictionary to FlaxWhisperPipline, the dict needs to contain a "
+                    '"raw" or "array" key containing the numpy array representing the audio, and a "sampling_rate" key '
+                    "containing the sampling rate associated with the audio array."
                 )
 
             _inputs = inputs.pop("raw", None)
