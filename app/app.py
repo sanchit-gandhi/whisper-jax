@@ -95,7 +95,7 @@ def transcribe_audio(microphone, file_upload, task, return_timestamps):
 
     inputs = microphone if microphone is not None else file_upload
 
-    inputs = {"array": audio.tolist(), "sampling_rate": inputs[0]}
+    inputs = {"array": inputs[1].tolist(), "sampling_rate": inputs[0]}
 
     text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
 
