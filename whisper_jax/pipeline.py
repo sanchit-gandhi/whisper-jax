@@ -339,9 +339,13 @@ class FlaxWhisperPipline:
         # We need to keep track of some additional input arguments for post-processing so need to forward these on after running generation
         input_features = model_inputs.pop("input_features")
         input_batch_size = input_features.shape[0]
-        # TODO(SG): handle variable batch lengths?
+
         if input_batch_size != batch_size:
-            padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
+            # here we can handle short audio inputs (< 120s) by using the minimum possible batch size
+            adjusted_batch_size = jax.device_count() if input_batch_size <= jax.device_count() else batch_size
+            padding = np.zeros(
+                [adjusted_batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype
+            )
             input_features = np.concatenate([input_features, padding])
 
         pred_ids = self.generate(input_features, language=language, task=task, return_timestamps=return_timestamps)[
@@ -362,7 +366,7 @@ class FlaxWhisperPipline:
         inputs,
         chunk_length_s=30,
         stride_length_s=None,
-        batch_size=8,
+        batch_size=32,
         language=None,
         task=None,
         return_timestamps=None,
