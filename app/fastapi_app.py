@@ -1,5 +1,9 @@
+import time
+
 import jax.numpy as jnp
 import numpy as np
+import pytube
+import requests
 from fastapi import FastAPI, HTTPException, Request
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
@@ -7,11 +11,12 @@ from transformers.pipelines.audio_utils import ffmpeg_read
 from whisper_jax import FlaxWhisperPipline
 
 
-# TODO(SG): switch to large checkpoint
-checkpoint = "openai/whisper-tiny"
+checkpoint = "openai/whisper-large-v2"
 
 pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16)
 pipeline.shard_params()
+
+# TODO(SG): compile the model beforehand (with and without timestamps)
 
 language_codes = {lang: f"<|{TO_LANGUAGE_CODE[lang]}|>" for lang in TO_LANGUAGE_CODE}
 generation_config = pipeline.model.generation_config
@@ -24,8 +29,40 @@ def read_root():
     return {"Hello": "World"}
 
 
+def download_youtube(yt_url, max_filesize=1):
+    yt = pytube.YouTube(yt_url)
+    stream = yt.streams.filter(only_audio=True)[0]
+
+    if stream.filesize_gb > max_filesize:
+        raise HTTPException(
+            status_code=418,
+            detail=f"Maximum YouTube file size is {str(max_filesize)}GB, got {str(stream.filesize_gb)}GB.",
+        )
+
+    stream.download(filename="audio.mp3")
+
+    with open("audio.mp3", "rb") as f:
+        inputs = f.read()
+
+    inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+    inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
+    return inputs
+
+
 def check_inputs(inputs, language, task, return_timestamps):
     # required pre-processing to handle different input types efficiently over requests
+    if isinstance(inputs, str):
+        if inputs.startswith("http://") or inputs.startswith("https://"):
+            if "youtu" in inputs:
+                inputs = download_youtube(inputs)
+            else:
+                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
+                # like http_huggingface_co.png
+                inputs = requests.get(inputs).content
+        else:
+            with open(inputs, "rb") as f:
+                inputs = f.read()
+
     if isinstance(inputs, bytes):
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
 
@@ -54,9 +91,11 @@ def check_inputs(inputs, language, task, return_timestamps):
                 status_code=418,
                 detail=f"We expect a single channel audio input for the Flax Whisper API, got {str(len(inputs['array'].shape))} channels.",
             )
-    """else:
-        raise HTTPException(status_code=418, detail=
-        f"We expect an audio input in the form of bytes or dictionary, but got {str(type(inputs))}.")"""
+    else:
+        raise HTTPException(
+            status_code=418,
+            detail=f"We expect an audio input in the form of bytes or dictionary, but got {str(type(inputs))}.",
+        )
 
     language_token = None
     if language is not None:
@@ -108,6 +147,7 @@ def check_inputs(inputs, language, task, return_timestamps):
 @app.post("/generate/")
 async def generate(request: Request):
     content = await request.json()
+    start = time.time()
     inputs = content.get("inputs", None)
     language = content.get("language", None)
     task = content.get("task", "transcribe")
@@ -115,5 +155,7 @@ async def generate(request: Request):
 
     inputs, language_token, task, return_timestamps = check_inputs(inputs, language, task, return_timestamps)
 
-    generation = pipeline(inputs, language=language, task=task, return_timestamps=return_timestamps)
+    print("Loading: ", time.time() - start)
+
+    generation = pipeline(inputs, language="english", task=task, return_timestamps=return_timestamps)
     return generation

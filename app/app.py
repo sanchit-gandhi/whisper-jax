@@ -1,8 +1,7 @@
 import gradio as gr
 import requests
-import pytube
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
-from transformers.pipelines.audio_utils import ffmpeg_read
+
 
 title = "Whisper JAX: The Fastest Whisper API Available ⚡️"
 
@@ -35,7 +34,7 @@ def inference(inputs, task, return_timestamps):
         text = data["detail"]
 
     if return_timestamps:
-        timestamps = data[0]["chunks"]
+        timestamps = data["chunks"]
     else:
         timestamps = None
 
@@ -72,22 +71,12 @@ def _return_yt_html_embed(yt_url):
 
 
 def transcribe_youtube(yt_url, task, return_timestamps):
-    yt = pytube.YouTube(yt_url)
     html_embed_str = _return_yt_html_embed(yt_url)
-    stream = yt.streams.filter(only_audio=True)[0]
-    stream.download(filename="audio.mp3")
 
-    with open("audio.mp3", "rb") as f:
-        inputs = f.read()
+    text, timestamps = inference(inputs=yt_url, task=task, return_timestamps=return_timestamps)
 
-    inputs = ffmpeg_read(inputs, SAMPLING_RATE)
-    inputs = {"array": inputs.tolist(), "sampling_rate": SAMPLING_RATE}
+    return html_embed_str, text, timestamps
 
-    yield html_embed_str, "Video loaded, transcribing audio...", None
-
-    text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
-
-    yield html_embed_str, text, timestamps
 
 audio = gr.Interface(
     fn=transcribe_audio,

@@ -1,1 +1,1 @@
-uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
+TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD=10000000000 uvicorn fastapi_app:app --host 0.0.0.0 --port 8000
