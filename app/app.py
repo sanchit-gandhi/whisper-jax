@@ -13,46 +13,6 @@ You can submit requests to Whisper JAX through this Gradio Demo, or directly thr
 
 API_URL = "https://whisper-jax.ngrok.io/generate/"
 
-api_info = """## Python API call:
-```python
-import requests
-
-response = requests.post("{URL}", json={
-  "inputs": "/path/to/file/audio.mp3",
-  "task": "transcribe",
-  "return_timestamps": False,
-}).json()
-
-data = response["data"]
-```
-
-## Javascript API call:
-```javascript
-fetch("{URL}", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    data: [
-      "/path/to/file/audio.mp3",
-      "afrikaans",
-      "transcribe",
-      false,
-	]
-  })})
-.then(r => r.json())
-.then(
-  r => {
-    let data = r.data;
-  }
-)
-```
-
-## CURL API call:
-```
-curl -X POST -d '{"inputs": "/path/to/file/audio.mp3", "task": "transcribe", "return_timestamps": false}' {URL} -H "content-type: application/json"
-```
-"""
-api_info = api_info.replace("{URL}", API_URL)
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme."
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
