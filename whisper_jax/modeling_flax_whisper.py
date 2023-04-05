@@ -383,6 +383,7 @@ class FlaxWhisperAttention(nn.Module):
     def _concatenate_to_cache(self, key, value, query, attention_mask):
         # The following code is largely copied from: https://github.com/google-research/t5x/blob/63d9addf628c6d8c547a407a32095fcb527bb20b/t5x/examples/scalable_t5/layers.py#L280-L284
         is_initialized = self.has_variable("cache", "cached_key")
+
         # The key and value have dimension [batch_size, seq_length, num_heads, head_dim],
         # but we cache them as [batch_size, num_heads, head_dim, seq_length] as a TPU
         # fusion optimization. This also enables the "scatter via one-hot

@@ -45,7 +45,9 @@ def check_inputs(inputs, language, task, return_timestamps):
             inputs["array"] = np.fromstring(inputs["array"], dtype=np.int16)
 
         if not isinstance(inputs["array"], np.ndarray):
-            raise HTTPException(status_code=404, detail=f"We expect a numpy ndarray as input, got `{type(inputs['array'])}`")
+            raise HTTPException(
+                status_code=404, detail=f"We expect a numpy ndarray as input, got `{type(inputs['array'])}`"
+            )
 
         if len(inputs["array"].shape) != 1:
             raise ValueError(
@@ -107,7 +109,7 @@ async def generate(request: Request):
     task = content.get("task", "transcribe")
     return_timestamps = content.get("return_timestamps", False)
 
-    inputs, language_token, task, return_timestamps= check_inputs(inputs, language, task, return_timestamps)
+    inputs, language_token, task, return_timestamps = check_inputs(inputs, language, task, return_timestamps)
 
     generation = pipeline(inputs, language=language, task=task, return_timestamps=return_timestamps)
     out = [generation]

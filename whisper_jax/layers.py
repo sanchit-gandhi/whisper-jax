@@ -269,6 +269,7 @@ class MultiHeadDotProductAttention(nn.Module):
         #       1/sqrt(depth_kq)!  This is folded into the initializers of the
         #       linear transformations, which is equivalent under Adafactor.
         depth_scaling = jnp.sqrt(self.head_dim).astype(self.dtype)
+
         def query_init(*args):
             return self.kernel_init(*args) / depth_scaling
 
@@ -285,6 +286,7 @@ class MultiHeadDotProductAttention(nn.Module):
         if decode:
             # Detect if we're initializing by absence of existing cache data.
             is_initialized = self.has_variable("cache", "cached_key")
+
             # The key and value have dimension [batch, length, num_heads, head_dim],
             # but we cache them as [batch, num_heads, head_dim, length] as a TPU
             # fusion optimization. This also enables the "scatter via one-hot
@@ -292,6 +294,7 @@ class MultiHeadDotProductAttention(nn.Module):
             # scatter/gather operations, resulting in a 3-4x speedup in practice.
             def swap_dims(x):
                 return x[:-3] + tuple(x[i] for i in [-2, -1, -3])
+
             cached_key = self.variable("cache", "cached_key", jnp.zeros, swap_dims(key.shape), key.dtype)
             cached_value = self.variable("cache", "cached_value", jnp.zeros, swap_dims(value.shape), value.dtype)
             cache_index = self.variable("cache", "cache_index", lambda: jnp.array(0, dtype=jnp.int32))

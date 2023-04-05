@@ -1,4 +1,3 @@
-
 import gradio as gr
 import requests
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
