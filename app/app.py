@@ -10,7 +10,7 @@ description = """Gradio Demo for Whisper JAX. Whisper JAX is an optimised JAX im
 You can submit requests to Whisper JAX through this Gradio Demo, or directly through API calls (see below).
 """
 
-API_URL = "https://whisper-jax.ngrok.io/generate"
+API_URL = "https://whisper-jax.ngrok.io/generate/"
 
 article = """## Python API call:
 ```python
@@ -56,20 +56,24 @@ article = article.replace("{URL}", API_URL)
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 
 
-def query(files_payload, json_payload):
-    response = requests.post(API_URL, data=files_payload, json=json_payload)
-    return response.json()
+def query(payload):
+    response = requests.post(API_URL, json=payload)
+    return response.json(), response.status_code
 
 
-def inference(input, language, task, return_timestamps):
-    json_payload = {"task": task, "return_timestamps": return_timestamps}
+def inference(inputs, language, task, return_timestamps):
+    inputs = {"array": inputs[1].tolist(), "sampling_rate": inputs[0]}
+    payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
 
     if language:
-        json_payload["language"] = f"<|{TO_LANGUAGE_CODE[language]}|>"
+        payload["language"] = language
 
-    data = query({"inputs": {"array": input[1], "sampling_rate": input[0]}}, json_payload)
+    data, status_code = query(payload)
 
-    text = data[0]["text"]
+    if status_code == 200:
+        text = data["text"]
+    else:
+        text = data["detail"]
 
     if return_timestamps:
         timestamps = data[0]["chunks"]
@@ -93,6 +97,7 @@ gr.Interface(
     ],
     examples=[["../Downloads/processed.wav", None, "transcribe", False]],
     cache_examples=False,
+    allow_flagging="never",
     title=title,
     description=description,
     article=article,
