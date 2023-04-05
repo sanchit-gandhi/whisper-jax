@@ -63,12 +63,9 @@ def query(payload):
     return response.json(), response.status_code
 
 
-def inference(inputs, language, task, return_timestamps):
+def inference(inputs, task, return_timestamps):
     inputs = {"array": inputs[1].tolist(), "sampling_rate": inputs[0]}
     payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
-
-    if language:
-        payload["language"] = language
 
     data, status_code = query(payload)
 
@@ -89,8 +86,7 @@ gr.Interface(
     fn=inference,
     inputs=[
         gr.inputs.Audio(source="upload", label="Input"),
-        gr.inputs.Dropdown(language_names, label="Language", default=None),
-        gr.inputs.Dropdown(["transcribe", "translate"], label="Task", default="transcribe"),
+        gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
         gr.inputs.Checkbox(default=False, label="Return timestamps"),
     ],
     outputs=[
