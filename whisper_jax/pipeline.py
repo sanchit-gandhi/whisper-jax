@@ -61,7 +61,22 @@ class FlaxWhisperPipline:
         )
 
         self.max_length = max_length if max_length is not None else self.model.generation_config.max_length
+        self.min_batch_size = jax.device_count()
 
+        def generate(params, input_features, forced_decoder_ids, return_timestamps):
+            output_ids = self.model.pipeline_generate(
+                input_features,
+                params=params,
+                forced_decoder_ids=forced_decoder_ids,
+                return_timestamps=return_timestamps,
+                max_length=self.max_length,
+            )
+            return output_ids
+
+        # use pmap for DP by default - this is compatible on a Colab TPU v2
+        self.p_generate = jax.pmap(generate, static_broadcasted_argnums=(3,))
+
+    def shard_params(self):
         def init_fn():
             input_shape = (1, 80, 3000)
 
@@ -87,8 +102,7 @@ class FlaxWhisperPipline:
             )
             return init_params
 
-            # Axis names metadata
-
+        # Axis names metadata
         param_axes = jax.eval_shape(init_fn)["params_axes"]
 
         # Create InferenceState, since the partitioner expects it
@@ -107,7 +121,10 @@ class FlaxWhisperPipline:
         mesh_axes = partitioner.get_mesh_axes(state)
         params_spec = mesh_axes.params
 
-        self.p_shard_params = partitioner.partition(self.model.to_bf16, (params_spec,), params_spec)
+        p_shard_params = partitioner.partition(self.model.to_bf16, (params_spec,), params_spec)
+
+        # This will auto-magically run in mesh context
+        self.params = p_shard_params(freeze(self.params))
 
         def generate(params, input_features, forced_decoder_ids, return_timestamps):
             output_ids = self.model.pipeline_generate(
@@ -119,16 +136,13 @@ class FlaxWhisperPipline:
             )
             return output_ids
 
+        # Use pjit for generate only once we've sharded the params
         self.p_generate = partitioner.partition(
             generate,
             in_axis_resources=(params_spec, P("data"), None),
             out_axis_resources=P("data"),
             static_argnums=(3,),
         )
-
-    def shard_params(self):
-        # This will auto-magically run in mesh context
-        self.params = self.p_shard_params(freeze(self.params))
 
     def generate(self, input_features, language=None, task=None, return_timestamps=False):
         forced_decoder_ids = self.get_forced_decoder_ids(
@@ -342,7 +356,7 @@ class FlaxWhisperPipline:
 
         if input_batch_size != batch_size:
             # here we can handle short audio inputs (< 120s) by using the minimum possible batch size
-            adjusted_batch_size = jax.device_count() if input_batch_size <= jax.device_count() else batch_size
+            adjusted_batch_size = self.min_batch_size if input_batch_size <= self.min_batch_size else batch_size
             padding = np.zeros(
                 [adjusted_batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype
             )
@@ -366,7 +380,7 @@ class FlaxWhisperPipline:
         inputs,
         chunk_length_s=30,
         stride_length_s=None,
-        batch_size=32,
+        batch_size=16,
         language=None,
         task=None,
         return_timestamps=None,
