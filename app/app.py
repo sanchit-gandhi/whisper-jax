@@ -1,10 +1,8 @@
-import os
 
 import gradio as gr
 import requests
-
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
-from transformers.pipelines.audio_utils import ffmpeg_read
+
 
 title = "Whisper JAX: The Fastest Whisper API Available ⚡️"
 
@@ -56,7 +54,7 @@ curl -X POST -d '{"inputs": "/path/to/file/audio.mp3", "task": "transcribe", "re
 """
 article = article.replace("{URL}", API_URL)
 
-language_names = sorted(list(TO_LANGUAGE_CODE.keys()))
+language_names = sorted(TO_LANGUAGE_CODE.keys())
 
 
 def query(files_payload, json_payload):
@@ -65,18 +63,12 @@ def query(files_payload, json_payload):
 
 
 def inference(input, language, task, return_timestamps):
-    json_payload = {
-        "task": task,
-        "return_timestamps": return_timestamps
-    }
+    json_payload = {"task": task, "return_timestamps": return_timestamps}
 
     if language:
         json_payload["language"] = f"<|{TO_LANGUAGE_CODE[language]}|>"
 
-    data = query(
-        {"inputs": {"array": input[1], "sampling_rate": input[0]}},
-        json_payload
-    )
+    data = query({"inputs": {"array": input[1], "sampling_rate": input[0]}}, json_payload)
 
     text = data[0]["text"]
 
@@ -94,7 +86,7 @@ gr.Interface(
         gr.inputs.Audio(source="upload", label="Input"),
         gr.inputs.Dropdown(language_names, label="Language", default=None),
         gr.inputs.Dropdown(["transcribe", "translate"], label="Task", default="transcribe"),
-        gr.inputs.Checkbox(default=False, label="Return timestamps")
+        gr.inputs.Checkbox(default=False, label="Return timestamps"),
     ],
     outputs=[
         gr.outputs.Textbox(label="Transcription"),

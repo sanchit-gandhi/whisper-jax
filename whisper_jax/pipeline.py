@@ -1,20 +1,19 @@
 import math
-from flax.core.frozen_dict import freeze
-import jax.numpy as jnp
-import jax
-from jax.sharding import PartitionSpec as P
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+import requests
+from flax.core.frozen_dict import freeze
+from jax.sharding import PartitionSpec as P
 from transformers import WhisperProcessor
 from transformers.pipelines.audio_utils import ffmpeg_read
+from transformers.utils import logging
+
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
 from .train_state import InferenceState
 
-import numpy as np
-
-import requests
-
-from transformers.utils import logging
 
 jax.config.update("jax_array", True)
 
@@ -32,7 +31,7 @@ logical_axis_rules_dp = (
     ("kv", None),
     ("length", None),
     ("num_mel", None),
-    ("channels", None)
+    ("channels", None),
 )
 
 
@@ -72,7 +71,9 @@ class FlaxWhisperPipline:
             decoder_attention_mask = jnp.ones_like(decoder_input_ids)
 
             batch_size, sequence_length = decoder_input_ids.shape
-            decoder_position_ids = jnp.broadcast_to(jnp.arange(sequence_length)[None, :], (batch_size, sequence_length))
+            decoder_position_ids = jnp.broadcast_to(
+                jnp.arange(sequence_length)[None, :], (batch_size, sequence_length)
+            )
 
             rng = jax.random.PRNGKey(0)
             init_params = self.model.module.init(
@@ -99,8 +100,7 @@ class FlaxWhisperPipline:
         )
 
         partitioner = PjitPartitioner(
-            num_partitions=self.num_mp_partitions,
-            logical_axis_rules=self.logical_axis_rules
+            num_partitions=self.num_mp_partitions, logical_axis_rules=self.logical_axis_rules
         )
 
         mesh_axes = partitioner.get_mesh_axes(state)
@@ -130,8 +130,12 @@ class FlaxWhisperPipline:
         self.params = self.p_shard_params(freeze(self.params))
 
     def generate(self, input_features, language=None, task=None, return_timestamps=False):
-        forced_decoder_ids = self.get_forced_decoder_ids(language=language, task=task, return_timestamps=return_timestamps)
-        output_ids = self.p_generate(freeze(self.params), input_features, forced_decoder_ids, return_timestamps).sequences
+        forced_decoder_ids = self.get_forced_decoder_ids(
+            language=language, task=task, return_timestamps=return_timestamps
+        )
+        output_ids = self.p_generate(
+            freeze(self.params), input_features, forced_decoder_ids, return_timestamps
+        ).sequences
         return output_ids
 
     def get_forced_decoder_ids(self, generation_config=None, task=None, language=None, return_timestamps=False):
@@ -177,14 +181,19 @@ class FlaxWhisperPipline:
             chunk_end_idx = chunk_start_idx + chunk_len
 
             chunks = [inputs[chunk_start:chunk_end] for chunk_start, chunk_end in zip(chunk_start_idx, chunk_end_idx)]
-            processed = self.feature_extractor(chunks, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np")
+            processed = self.feature_extractor(
+                chunks, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np"
+            )
 
             _stride_left = np.where(chunk_start_idx == 0, 0, stride_left)
             is_last = np.where(stride_right > 0, chunk_end_idx > inputs_len, chunk_end_idx >= inputs_len)
             _stride_right = np.where(is_last, 0, stride_right)
 
             chunk_lens = [chunk.shape[0] for chunk in chunks]
-            strides = [(chunk_l, _stride_l, _stride_r) for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)]
+            strides = [
+                (chunk_l, _stride_l, _stride_r)
+                for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)
+            ]
 
             yield {"stride": strides, **processed}
 
@@ -224,11 +233,14 @@ class FlaxWhisperPipline:
             if in_sampling_rate != self.feature_extractor.sampling_rate:
                 try:
                     import librosa
-                    import soundfile as sf
                 except ImportError as err:
-                    raise ImportError("To support resampling audio files, please install 'librosa' and 'soundfile'.") from err
+                    raise ImportError(
+                        "To support resampling audio files, please install 'librosa' and 'soundfile'."
+                    ) from err
 
-                inputs = librosa.resample(inputs, orig_sr=in_sampling_rate, target_sr=self.feature_extractor.sampling_rate)
+                inputs = librosa.resample(
+                    inputs, orig_sr=in_sampling_rate, target_sr=self.feature_extractor.sampling_rate
+                )
                 ratio = self.feature_extractor.sampling_rate / in_sampling_rate
             else:
                 ratio = 1
@@ -263,7 +275,11 @@ class FlaxWhisperPipline:
                 raise ValueError("Chunk length must be superior to stride length")
 
             for item in self.chunk_iter_with_batch(
-                    inputs, chunk_len, stride_left, stride_right, batch_size,
+                inputs,
+                chunk_len,
+                stride_left,
+                stride_right,
+                batch_size,
             ):
                 yield item
         else:
@@ -307,7 +323,9 @@ class FlaxWhisperPipline:
             padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
             input_features = np.concatenate([input_features, padding])
 
-        pred_ids = self.generate(input_features, language=language, task=task, return_timestamps=return_timestamps)[:input_batch_size]
+        pred_ids = self.generate(input_features, language=language, task=task, return_timestamps=return_timestamps)[
+            :input_batch_size
+        ]
 
         # tokenizer's decode method expects an extra dim - we insert it here for convenience
         out = {"tokens": np.asarray(pred_ids[:, None, :])}
@@ -318,13 +336,29 @@ class FlaxWhisperPipline:
 
         return out
 
-    def __call__(self, inputs, chunk_length_s=30, stride_length_s=None, batch_size=8, language=None, task=None, return_timestamps=None, generate_kwargs=None):
-        dataloader = self.preprocess_batch(inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size)
+    def __call__(
+        self,
+        inputs,
+        chunk_length_s=30,
+        stride_length_s=None,
+        batch_size=8,
+        language=None,
+        task=None,
+        return_timestamps=None,
+        generate_kwargs=None,
+    ):
+        dataloader = self.preprocess_batch(
+            inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size
+        )
 
         model_outputs = []
         # iterate over our chunked audio samples
         for batch in dataloader:
-            model_outputs.append(self.forward(batch, batch_size=batch_size, language=language, task=task, return_timestamps=return_timestamps))
+            model_outputs.append(
+                self.forward(
+                    batch, batch_size=batch_size, language=language, task=task, return_timestamps=return_timestamps
+                )
+            )
 
         post_processed = self.postprocess(model_outputs, return_timestamps=return_timestamps)
         return post_processed

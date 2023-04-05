@@ -1,12 +1,13 @@
 import time
 
-from flax.core.frozen_dict import freeze
-import jax.numpy as jnp
 import jax
-from jax.sharding import PartitionSpec as P
+import jax.numpy as jnp
+from flax.core.frozen_dict import freeze
 from jax.experimental.compilation_cache import compilation_cache as cc
+from jax.sharding import PartitionSpec as P
 
-from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
+from whisper_jax import FlaxWhisperForConditionalGeneration, InferenceState, PjitPartitioner
+
 
 jax.config.update("jax_array", True)
 cc.initialize_cache("./jax_cache")
@@ -26,7 +27,7 @@ logical_axis_rules_dp = [
     ("kv", None),
     ("length", None),
     ("num_mel", None),
-    ("channels", None)
+    ("channels", None),
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
@@ -34,6 +35,7 @@ model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
     _do_init=False,
     dtype=jnp.bfloat16,
 )
+
 
 def init_fn():
     input_shape = (1, 80, 3000)
@@ -58,6 +60,7 @@ def init_fn():
     )
     return init_params
 
+
 # Axis names metadata
 param_axes = jax.eval_shape(init_fn)["params_axes"]
 
@@ -79,6 +82,7 @@ mesh_axes = partitioner.get_mesh_axes(state)
 params_spec = mesh_axes.params
 
 p_shard_params = partitioner.partition(model.to_bf16, (params_spec,), params_spec)
+
 
 def generate(params, input_features):
     output_ids = model.generate(input_features, params=params, max_new_tokens=25).sequences

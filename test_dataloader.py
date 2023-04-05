@@ -1,9 +1,8 @@
+import math
 import time
 
-import math
 import numpy as np
 from torch.utils.data import DataLoader
-
 from transformers import WhisperProcessor
 from transformers.pipelines.base import no_collate_fn
 from transformers.pipelines.pt_utils import PipelineChunkIterator, PipelinePackIterator
@@ -11,6 +10,7 @@ from transformers.pipelines.pt_utils import PipelineChunkIterator, PipelinePackI
 
 class Pipeline:
     """Relies on the data loaders defined in transformers Pipeline"""
+
     def __init__(self, checkpoint="openai/whisper-tiny.en"):
         self.checkpoint = checkpoint
         self.processor = WhisperProcessor.from_pretrained(self.checkpoint)
@@ -72,7 +72,11 @@ class Pipeline:
                 raise ValueError("Chunk length must be superior to stride length")
 
             for item in self.chunk_iter(
-                    array, self.feature_extractor, chunk_len, stride_left, stride_right,
+                array,
+                self.feature_extractor,
+                chunk_len,
+                stride_left,
+                stride_right,
             ):
                 yield item
         else:
@@ -99,14 +103,27 @@ class Pipeline:
 
         return {"is_last": is_last, **out}
 
-    def __call__(self, inputs, chunk_length_s=0, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=4, num_workers=1):
-        dataset = PipelineChunkIterator([inputs], self.preprocess, {"chunk_length_s": chunk_length_s, "stride_length_s": stride_length_s})
+    def __call__(
+        self,
+        inputs,
+        chunk_length_s=0,
+        stride_length_s=None,
+        return_timestamps=None,
+        return_language=None,
+        generate_kwargs=None,
+        batch_size=4,
+        num_workers=1,
+    ):
+        dataset = PipelineChunkIterator(
+            [inputs], self.preprocess, {"chunk_length_s": chunk_length_s, "stride_length_s": stride_length_s}
+        )
         collate_fn = no_collate_fn if batch_size == 1 else pad_collate_fn()
         dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=collate_fn)
         model_iterator = PipelinePackIterator(dataloader, self.forward, {}, loader_batch_size=batch_size)
 
         for batch in enumerate(model_iterator):
             continue
+
 
 def _pad(items, key):
     if isinstance(items[0][key], np.ndarray):
@@ -134,8 +151,10 @@ def pad_collate_fn():
 
     return inner
 
+
 class ManualIterator:
     """Manual implementation"""
+
     def __init__(self, checkpoint="openai/whisper-tiny.en"):
         self.checkpoint = checkpoint
         self.processor = WhisperProcessor.from_pretrained(self.checkpoint)
@@ -166,55 +185,63 @@ class ManualIterator:
             _stride_right = np.where(is_last, 0, stride_right)
 
             chunk_lens = [chunk.shape[0] for chunk in chunks]
-            strides = [(chunk_l, _stride_l, _stride_r) for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)]
+            strides = [
+                (chunk_l, _stride_l, _stride_r)
+                for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)
+            ]
 
             yield {"stride": strides, **processed}
 
     def preprocess_batch(self, inputs, chunk_length_s=0, stride_length_s=None, batch_size=None):
-            array = inputs.get("array")
-            in_sampling_rate = inputs.get("sampling_rate")
-            stride = inputs.get("stride", None)
+        array = inputs.get("array")
+        in_sampling_rate = inputs.get("sampling_rate")
+        stride = inputs.get("stride", None)
 
-            if in_sampling_rate != self.feature_extractor.sampling_rate:
-                ratio = self.feature_extractor.sampling_rate / in_sampling_rate
-            else:
-                ratio = 1
+        if in_sampling_rate != self.feature_extractor.sampling_rate:
+            ratio = self.feature_extractor.sampling_rate / in_sampling_rate
+        else:
+            ratio = 1
 
+        if stride is not None:
+            if stride[0] + stride[1] > inputs.shape[0]:
+                raise ValueError("Stride is too large for input")
+
+            # Stride needs to get the chunk length here, it's going to get
+            # swallowed by the `feature_extractor` later, and then batching
+            # can add extra data in the inputs, so we need to keep track
+            # of the original length in the stride so we can cut properly.
+            stride = (inputs.shape[0], int(round(stride[0] * ratio)), int(round(stride[1] * ratio)))
+
+        if chunk_length_s:
+            if stride_length_s is None:
+                stride_length_s = chunk_length_s / 6
+
+            if isinstance(stride_length_s, (int, float)):
+                stride_length_s = [stride_length_s, stride_length_s]
+
+            chunk_len = round(chunk_length_s * self.feature_extractor.sampling_rate)
+            stride_left = round(stride_length_s[0] * self.feature_extractor.sampling_rate)
+            stride_right = round(stride_length_s[1] * self.feature_extractor.sampling_rate)
+
+            if chunk_len < stride_left + stride_right:
+                raise ValueError("Chunk length must be superior to stride length")
+
+            for item in self.chunk_iter_with_batch(
+                array,
+                self.feature_extractor,
+                chunk_len,
+                stride_left,
+                stride_right,
+                batch_size,
+            ):
+                yield item
+        else:
+            processed = self.feature_extractor(
+                array, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np"
+            )
             if stride is not None:
-                if stride[0] + stride[1] > inputs.shape[0]:
-                    raise ValueError("Stride is too large for input")
-
-                # Stride needs to get the chunk length here, it's going to get
-                # swallowed by the `feature_extractor` later, and then batching
-                # can add extra data in the inputs, so we need to keep track
-                # of the original length in the stride so we can cut properly.
-                stride = (inputs.shape[0], int(round(stride[0] * ratio)), int(round(stride[1] * ratio)))
-
-            if chunk_length_s:
-                if stride_length_s is None:
-                    stride_length_s = chunk_length_s / 6
-
-                if isinstance(stride_length_s, (int, float)):
-                    stride_length_s = [stride_length_s, stride_length_s]
-
-                chunk_len = round(chunk_length_s * self.feature_extractor.sampling_rate)
-                stride_left = round(stride_length_s[0] * self.feature_extractor.sampling_rate)
-                stride_right = round(stride_length_s[1] * self.feature_extractor.sampling_rate)
-
-                if chunk_len < stride_left + stride_right:
-                    raise ValueError("Chunk length must be superior to stride length")
-
-                for item in self.chunk_iter_with_batch(
-                        array, self.feature_extractor, chunk_len, stride_left, stride_right, batch_size,
-                ):
-                    yield item
-            else:
-                processed = self.feature_extractor(
-                    array, sampling_rate=self.feature_extractor.sampling_rate, return_tensors="np"
-                )
-                if stride is not None:
-                    processed["stride"] = stride
-                yield processed
+                processed["stride"] = stride
+            yield processed
 
     def forward(self, model_inputs, return_timestamps=False, generate_kwargs=None):
         if generate_kwargs is None:
@@ -228,12 +255,23 @@ class ManualIterator:
         if stride is not None:
             out["stride"] = stride
 
-    def __call__(self, inputs, chunk_length_s=0, stride_length_s=None, return_timestamps=None, return_language=None, generate_kwargs=None, batch_size=4, num_workers=1):
+    def __call__(
+        self,
+        inputs,
+        chunk_length_s=0,
+        stride_length_s=None,
+        return_timestamps=None,
+        return_language=None,
+        generate_kwargs=None,
+        batch_size=4,
+        num_workers=1,
+    ):
         dataloader = self.preprocess_batch(inputs, chunk_length_s, stride_length_s, batch_size)
 
         for batch in dataloader:
             print(batch["stride"])
             self.forward(batch)
+
 
 pipeline = Pipeline()
 custom_pipeline = ManualIterator()

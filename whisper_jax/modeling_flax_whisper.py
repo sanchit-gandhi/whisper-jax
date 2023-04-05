@@ -21,17 +21,18 @@ from typing import Optional, Tuple
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from whisper_jax import layers
 from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 from flax.linen import combine_masks, make_causal_mask
 from flax.linen.attention import dot_product_attention_weights
 from flax.traverse_util import flatten_dict, unflatten_dict
 from jax import lax
 from jax.random import PRNGKey
-from whisper_jax.layers import with_sharding_constraint
-
 from transformers import WhisperConfig
-from transformers.generation.flax_logits_process import FlaxWhisperTimeStampLogitsProcessor, FlaxLogitsProcessorList, FlaxLogitsProcessor
+from transformers.generation.flax_logits_process import (
+    FlaxLogitsProcessor,
+    FlaxLogitsProcessorList,
+    FlaxWhisperTimeStampLogitsProcessor,
+)
 from transformers.modeling_flax_outputs import (
     FlaxBaseModelOutput,
     FlaxBaseModelOutputWithPastAndCrossAttentions,
@@ -52,6 +53,9 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
+
+from whisper_jax import layers
+from whisper_jax.layers import with_sharding_constraint
 
 
 logger = logging.get_logger(__name__)
@@ -177,6 +181,7 @@ WHISPER_DECODE_INPUTS_DOCSTRING = r"""
             Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
 """
 
+
 class FlaxStaticForceTokensLogitsProcessor(FlaxLogitsProcessor):
     r"""
     [`FlaxLogitsProcessor`] that takes a list of pairs of integers which indicates a mapping from generation indices to
@@ -228,6 +233,7 @@ class FlaxStaticForceTokensLogitsProcessor(FlaxLogitsProcessor):
             ),
         )
         return scores
+
 
 class FlaxWhisperAttention(nn.Module):
     config: WhisperConfig
@@ -382,21 +388,24 @@ class FlaxWhisperAttention(nn.Module):
         # fusion optimization. This also enables the "scatter via one-hot
         # broadcast" trick, which means we do a one-hot broadcast instead of a
         # scatter/gather operations, resulting in a 3-4x speedup in practice.
-        swap_dims = lambda x: x[:-3] + tuple(x[i] for i in [-2, -1, -3])
+        def swap_dims(x):
+            return x[:-3] + tuple(x[i] for i in [-2, -1, -3])
 
         cached_key = self.variable("cache", "cached_key", jnp.zeros, swap_dims(key.shape), key.dtype)
         cached_value = self.variable("cache", "cached_value", jnp.zeros, swap_dims(value.shape), value.dtype)
         cache_index = self.variable("cache", "cache_index", lambda: jnp.array(0, dtype=jnp.int32))
 
         if is_initialized:
-            batch_size, num_heads, head_dim, seq_length = (cached_key.value.shape)
+            batch_size, num_heads, head_dim, seq_length = cached_key.value.shape
             # During fast autoregressive decoding, we feed one position at a time,
             # and cache the keys and values step by step.
             # Sanity shape check of cached key against input query.
             num_updated_cache_vectors = query.shape[1]
             expected_shape = (batch_size, 1, num_heads, head_dim)
             if num_updated_cache_vectors == 1 and expected_shape != query.shape:
-                raise ValueError(f"Autoregressive cache shape error, expected query shape {expected_shape} instead got {query.shape}")
+                raise ValueError(
+                    f"Autoregressive cache shape error, expected query shape {expected_shape} instead got {query.shape}"
+                )
 
             # Create a OHE of the current index. NOTE: the index is increased below.
             cur_index = cache_index.value
@@ -1580,12 +1589,12 @@ class FlaxWhisperForConditionalGeneration(FlaxWhisperPreTrainedModel):
         )
 
     def pipeline_generate(
-            self,
-            input_features,
-            forced_decoder_ids,
-            return_timestamps=False,
-            generation_config=None,
-            **kwargs,
+        self,
+        input_features,
+        forced_decoder_ids,
+        return_timestamps=False,
+        generation_config=None,
+        **kwargs,
     ):
         if generation_config is None:
             generation_config = self.generation_config
@@ -1598,9 +1607,7 @@ class FlaxWhisperForConditionalGeneration(FlaxWhisperPreTrainedModel):
         logits_processor.append(FlaxStaticForceTokensLogitsProcessor(forced_decoder_ids))
 
         if hasattr(generation_config, "return_timestamps") and return_timestamps:
-            logits_processor.append(
-                FlaxWhisperTimeStampLogitsProcessor(generation_config, self.config, 1)
-            )
+            logits_processor.append(FlaxWhisperTimeStampLogitsProcessor(generation_config, self.config, 1))
 
         return super().generate(
             input_features,

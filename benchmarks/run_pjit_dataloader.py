@@ -1,18 +1,18 @@
 import time
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 from datasets import load_dataset
 from flax.core.frozen_dict import freeze
-import jax.numpy as jnp
-import jax
-from jax.sharding import PartitionSpec as P
 from jax.experimental.compilation_cache import compilation_cache as cc
+from jax.sharding import PartitionSpec as P
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from transformers import WhisperProcessor
 
-from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
+from whisper_jax import FlaxWhisperForConditionalGeneration, InferenceState, PjitPartitioner
 
-from tqdm import tqdm
 
 cc.initialize_cache("./jax_cache")
 jax.config.update("jax_array", True)
@@ -36,7 +36,7 @@ logical_axis_rules_dp = [
     ("kv", None),
     ("length", None),
     ("num_mel", None),
-    ("channels", None)
+    ("channels", None),
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
@@ -44,6 +44,7 @@ model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
     _do_init=False,
     dtype=jnp.bfloat16,
 )
+
 
 def init_fn():
     input_shape = (1, 80, 3000)
@@ -68,6 +69,7 @@ def init_fn():
     )
     return init_params
 
+
 # Axis names metadata
 param_axes = jax.eval_shape(init_fn)["params_axes"]
 
@@ -90,9 +92,11 @@ params_spec = mesh_axes.params
 
 p_shard_params = partitioner.partition(model.to_bf16, (params_spec,), params_spec)
 
+
 def generate(params, input_features):
     output_ids = model.generate(input_features, params=params, max_length=NUM_TOKENS).sequences
     return output_ids
+
 
 p_generate = partitioner.partition(
     generate,
@@ -109,18 +113,22 @@ pred_ids = p_generate(freeze(params), np.ones((BATCH_SIZE, 80, 3000)))
 # processors/tokenizers are the same for all models, so just load from tiny and preprocess once
 processor = WhisperProcessor.from_pretrained("openai/whisper-large-v2")
 
+
 def preprocess(batch):
     batch["input_features"] = processor(
         batch["audio"]["array"], sampling_rate=16000, return_tensors="np"
     ).input_features[0]
     return batch
 
+
 librispeech = load_dataset("speechcolab/gigaspeech", "l", split="train", streaming=STREAMING, use_auth_token=True)
 librispeech_features = librispeech.features.keys()
 
 librispeech_processed = librispeech.map(preprocess, remove_columns=librispeech_features)
 
-eval_dataloader = DataLoader(librispeech_processed, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, persistent_workers=True)
+eval_dataloader = DataLoader(
+    librispeech_processed, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, persistent_workers=True
+)
 
 all_load_times = 0
 all_runtimes = 0

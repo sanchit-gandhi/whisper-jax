@@ -1,32 +1,36 @@
 import argparse
 import time
-from datasets import load_dataset, concatenate_datasets
-from flax.core.frozen_dict import freeze
-import jax.numpy as jnp
-import jax
-from jax.sharding import PartitionSpec as P
-from jax.experimental.compilation_cache import compilation_cache as cc
-from transformers import WhisperProcessor, WhisperConfig
-
-from whisper_jax import FlaxWhisperForConditionalGeneration, PjitPartitioner, InferenceState
 
 import datasets
+import jax
+import jax.numpy as jnp
+from datasets import concatenate_datasets, load_dataset
+from flax.core.frozen_dict import freeze
+from jax.experimental.compilation_cache import compilation_cache as cc
+from jax.sharding import PartitionSpec as P
+from transformers import WhisperConfig, WhisperProcessor
+
+from whisper_jax import FlaxWhisperForConditionalGeneration, InferenceState, PjitPartitioner
+
+
 datasets.logging.set_verbosity(datasets.logging.CRITICAL)
 
 cc.initialize_cache("./jax_cache")
 jax.config.update("jax_array", True)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Benchmark Whisper large-v2")
     parser.add_argument(
         "--model_parallel_submesh",
         type=int,
-        nargs='+',
+        nargs="+",
         default=(2, 2, 1, 1),
         help="Model parallel submesh.",
     )
     args = parser.parse_args()
     return args
+
 
 BATCH_SIZES = [4, 8, 16, 32]
 NUM_BATCHES = 100
@@ -45,8 +49,9 @@ logical_axis_rules_dp = [
     ("kv", None),
     ("length", None),
     ("num_mel", None),
-    ("channels", None)
+    ("channels", None),
 ]
+
 
 def main():
     args = parse_args()
@@ -134,14 +139,15 @@ def main():
 
         # warm-up step
         batch = next(iter(eval_dataloader))
-        pred_ids = p_generate(freeze(params), batch["input_features"])
+        p_generate(freeze(params), batch["input_features"])
 
         start = time.time()
         for batch in eval_dataloader:
-            pred_ids = p_generate(freeze(params), batch["input_features"])
+            p_generate(freeze(params), batch["input_features"])
         runtime = time.time() - start
 
         print(f"{batch_size}: {runtime:.06}")
+
 
 if __name__ == "__main__":
     main()
