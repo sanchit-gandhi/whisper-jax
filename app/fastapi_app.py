@@ -41,7 +41,7 @@ def check_inputs(inputs, language, task, return_timestamps):
             )
 
         if isinstance(inputs["array"], list):
-            audio = np.array(inputs["array"], dtype=np.int16)
+            audio = np.array(inputs["array"])
             inputs["array"] = (audio - np.mean(audio)) / np.std(audio)
 
         if not isinstance(inputs["array"], np.ndarray):
