@@ -12,11 +12,11 @@ from whisper_jax import FlaxWhisperPipline
 
 
 checkpoint = "openai/whisper-large-v2"
+batch_size = 16
+chunk_length_s = 30
 
 pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16)
 pipeline.shard_params()
-
-# TODO(SG): compile the model beforehand (with and without timestamps)
 
 language_codes = {lang: f"<|{TO_LANGUAGE_CODE[lang]}|>" for lang in TO_LANGUAGE_CODE}
 generation_config = pipeline.model.generation_config
@@ -157,5 +157,12 @@ async def generate(request: Request):
 
     print("Loading: ", time.time() - start)
 
-    generation = pipeline(inputs, language="english", task=task, return_timestamps=return_timestamps)
+    generation = pipeline(
+        inputs,
+        language=language,
+        task=task,
+        return_timestamps=return_timestamps,
+        batch_size=batch_size,
+        chunk_length_s=chunk_length_s,
+    )
     return generation
