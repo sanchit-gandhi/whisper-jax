@@ -3,16 +3,14 @@ import requests
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 
 
-title = "Whisper JAX: The Fastest Whisper API Available ⚡️"
+title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **12x** faster, making it the fastest Whisper API available.
-
-You can submit requests to Whisper JAX through this Gradio Demo, or directly through API calls (see below). This notebook demonstrates how you can run the Whisper JAX model yourself on a TPU v2-8 in a Google Colab: TODO.
-"""
+description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **12x** faster, making it the fastest Whisper API available."
+# description += "\nYou can submit requests to Whisper JAX through this Gradio Demo, or directly through API calls (see below). This notebook demonstrates how you can run the Whisper JAX model yourself on a TPU v2-8 in a Google Colab: TODO."
 
 API_URL = "https://whisper-jax.ngrok.io/generate/"
 
-article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme."
+article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX code and Gradio demo by 🤗 Hugging Face."
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 SAMPLING_RATE = 16000
@@ -23,8 +21,12 @@ def query(payload):
     return response.json(), response.status_code
 
 
-def inference(inputs, task, return_timestamps):
+def inference(inputs, language=None, task=None, return_timestamps=False):
     payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
+
+    # langauge can come as an empty string from the Gradio `None` default, so we handle it separately
+    if language:
+        payload["language"] = language
 
     data, status_code = query(payload)
 
@@ -110,6 +112,8 @@ youtube = gr.Interface(
     ],
     allow_flagging="never",
     title=title,
+    examples=[["https://www.youtube.com/watch?v=m8u-18Q0s7I", "transcribe", False]],
+    cache_examples=False,
     description=description,
     article=article,
 )
