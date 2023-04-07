@@ -1,17 +1,18 @@
 import base64
-import time
 
 import jax.numpy as jnp
 import numpy as np
 import pytube
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from jax.experimental.compilation_cache import compilation_cache as cc
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
 
 from whisper_jax import FlaxWhisperPipline
 
 
+cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
 batch_size = 16
 chunk_length_s = 30
