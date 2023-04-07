@@ -63,7 +63,7 @@ def transcribe_audio(microphone, file_upload, task, return_timestamps):
         inputs = f.read()
 
     inputs = ffmpeg_read(inputs, SAMPLING_RATE)
-    inputs = {"array": base64.b64encode(inputs.tobytes()), "sampling_rate": SAMPLING_RATE}
+    inputs = {"array": base64.b64encode(inputs.tobytes()).decode(), "sampling_rate": SAMPLING_RATE}
 
     text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
 
