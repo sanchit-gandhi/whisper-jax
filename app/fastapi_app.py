@@ -151,15 +151,12 @@ def check_inputs(inputs, language, task, return_timestamps):
 @app.post("/generate/")
 async def generate(request: Request):
     content = await request.json()
-    start = time.time()
     inputs = content.get("inputs", None)
     language = content.get("language", None)
     task = content.get("task", "transcribe")
     return_timestamps = content.get("return_timestamps", False)
 
     inputs, language_token, task, return_timestamps = check_inputs(inputs, language, task, return_timestamps)
-
-    print("Loading: ", time.time() - start)
 
     generation = pipeline(
         inputs,

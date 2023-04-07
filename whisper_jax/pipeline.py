@@ -389,7 +389,6 @@ class FlaxWhisperPipline:
         dataloader = self.preprocess_batch(
             inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size
         )
-
         model_outputs = []
         # iterate over our chunked audio samples
         for batch in dataloader:
@@ -398,6 +397,5 @@ class FlaxWhisperPipline:
                     batch, batch_size=batch_size, language=language, task=task, return_timestamps=return_timestamps
                 )
             )
-
         post_processed = self.postprocess(model_outputs, return_timestamps=return_timestamps)
         return post_processed
