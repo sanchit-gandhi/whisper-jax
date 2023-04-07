@@ -1,7 +1,7 @@
 import gradio as gr
 import requests
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
-
+from transformers.pipelines.audio_utils import ffmpeg_read
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -56,7 +56,11 @@ def transcribe_audio(microphone, file_upload, task, return_timestamps):
 
     inputs = microphone if microphone is not None else file_upload
 
-    inputs = {"array": inputs[1].tolist(), "sampling_rate": inputs[0]}
+    with open(inputs, "rb") as f:
+        inputs = f.read()
+
+    inputs = ffmpeg_read(inputs, SAMPLING_RATE)
+    inputs = {"array": inputs.tolist(), "sampling_rate": SAMPLING_RATE}
 
     text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
 
@@ -83,8 +87,8 @@ def transcribe_youtube(yt_url, task, return_timestamps):
 audio = gr.Interface(
     fn=transcribe_audio,
     inputs=[
-        gr.inputs.Audio(source="microphone", optional=True),
-        gr.inputs.Audio(source="upload", optional=True),
+        gr.inputs.Audio(source="microphone", optional=True, type="filepath"),
+        gr.inputs.Audio(source="upload", optional=True, type="filepath"),
         gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
         gr.inputs.Checkbox(default=False, label="Return timestamps"),
     ],
