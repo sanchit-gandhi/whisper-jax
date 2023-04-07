@@ -1,7 +1,10 @@
+import base64
+
 import gradio as gr
 import requests
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
+
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -60,7 +63,7 @@ def transcribe_audio(microphone, file_upload, task, return_timestamps):
         inputs = f.read()
 
     inputs = ffmpeg_read(inputs, SAMPLING_RATE)
-    inputs = {"array": inputs.tolist(), "sampling_rate": SAMPLING_RATE}
+    inputs = {"array": base64.b64encode(inputs.tobytes()), "sampling_rate": SAMPLING_RATE}
 
     text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
 

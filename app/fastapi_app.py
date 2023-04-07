@@ -1,3 +1,4 @@
+import base64
 import time
 
 import jax.numpy as jnp
@@ -80,6 +81,9 @@ def check_inputs(inputs, language, task, return_timestamps):
         if isinstance(inputs["array"], list):
             audio = np.array(inputs["array"])
             inputs["array"] = (audio - np.mean(audio)) / np.std(audio)
+
+        if isinstance(inputs["array"], str):
+            inputs["array"] = np.frombuffer(base64.b64decode(inputs["array"]), dtype=np.float32)
 
         if not isinstance(inputs["array"], np.ndarray):
             raise HTTPException(
