@@ -5,8 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import requests
 from flax import jax_utils
-from flax.training.common_utils import shard
 from flax.core.frozen_dict import freeze
+from flax.training.common_utils import shard
 from jax.sharding import PartitionSpec as P
 from transformers import WhisperProcessor
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
@@ -60,8 +60,10 @@ class FlaxWhisperPipline:
         )
 
         self.max_length = max_length if max_length is not None else self.model.generation_config.max_length
-        self.min_batch_size = jax.device_count()
-        self.batch_size = batch_size if batch_size is not None else self.min_batch_size  # we need a minimum of 1 batch per-device
+        self.min_batch_size = jax.local_device_count()
+        self.batch_size = (
+            batch_size if batch_size is not None else self.min_batch_size
+        )  # we need a minimum of 1 batch per-device
 
         def generate(params, input_features, forced_decoder_ids, return_timestamps):
             output_ids = self.model.pipeline_generate(
@@ -75,7 +77,9 @@ class FlaxWhisperPipline:
 
         # use pmap for DP by default - this is compatible on a Colab TPU v2
         self.params = jax_utils.replicate(self.params)
-        self.p_generate = jax.pmap(generate, "input_features", static_broadcasted_argnums=(3,))
+        self.p_generate = jax.pmap(
+            generate, "input_features", in_axes=(0, 0, None), out_axes=0, static_broadcasted_argnums=(3,)
+        )
         self.is_sharded = False
 
     def shard_params(self, num_mp_partitions=1, logical_axis_rules=logical_axis_rules_dp):
@@ -116,9 +120,7 @@ class FlaxWhisperPipline:
             flax_mutables_axes=param_axes,
         )
 
-        partitioner = PjitPartitioner(
-            num_partitions=num_mp_partitions, logical_axis_rules=logical_axis_rules
-        )
+        partitioner = PjitPartitioner(num_partitions=num_mp_partitions, logical_axis_rules=logical_axis_rules)
 
         mesh_axes = partitioner.get_mesh_axes(state)
         params_spec = mesh_axes.params
@@ -152,13 +154,16 @@ class FlaxWhisperPipline:
             language=language, task=task, return_timestamps=return_timestamps
         )
         if not self.is_sharded:
-            input_features = shard(input_features)
-            forced_decoder_ids = np.tile(forced_decoder_ids, (4, 1, 1))
-        output_ids = self.p_generate(
-            freeze(self.params), input_features, forced_decoder_ids, return_timestamps
-        ).sequences
-        if not self.is_sharded:
+            # if we're using pmap we need to manually replicate the input data across devices and gather the output tokens
+            output_ids = self.p_generate(
+                freeze(self.params), shard(input_features), forced_decoder_ids, return_timestamps
+            ).sequences
             output_ids = jax.device_get(output_ids.reshape(-1, self.max_length))
+        else:
+            # pjit handles replication / gathering for us auto-magically
+            output_ids = self.p_generate(
+                freeze(self.params), input_features, forced_decoder_ids, return_timestamps
+            ).sequences
         return output_ids
 
     def get_forced_decoder_ids(self, generation_config=None, task=None, language=None, return_timestamps=False):
@@ -396,7 +401,9 @@ class FlaxWhisperPipline:
     ):
         batch_size = batch_size if batch_size is not None else self.batch_size
         if batch_size % self.min_batch_size != 0:
-            raise ValueError(f"Batch size must be a multiple of the number of JAX devices, but got batch size {batch_size} and num devices {self.min_batch_size}.")
+            raise ValueError(
+                f"Batch size must be a multiple of the number of JAX devices, but got batch size {batch_size} and num devices {self.min_batch_size}."
+            )
 
         dataloader = self.preprocess_batch(
             inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size
