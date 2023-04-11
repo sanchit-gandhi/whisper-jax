@@ -368,11 +368,7 @@ class FlaxWhisperPipline:
         input_batch_size = input_features.shape[0]
 
         if input_batch_size != batch_size:
-            # here we can handle short audio inputs (< 120s) by using the minimum possible batch size
-            adjusted_batch_size = self.min_batch_size if input_batch_size <= self.min_batch_size else batch_size
-            padding = np.zeros(
-                [adjusted_batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype
-            )
+            padding = np.zeros([batch_size - input_batch_size, *input_features.shape[1:]], input_features.dtype)
             input_features = np.concatenate([input_features, padding])
 
         pred_ids = self.generate(input_features, language=language, task=task, return_timestamps=return_timestamps)[
