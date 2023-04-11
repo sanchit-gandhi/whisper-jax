@@ -41,15 +41,11 @@ class FlaxWhisperPipline:
         self,
         checkpoint="openai/whisper-large-v2",
         dtype=jnp.bfloat16,
-        num_mp_partitions=1,
-        logical_axis_rules=logical_axis_rules_dp,
         batch_size=None,
         max_length=None,
     ):
         self.checkpoint = checkpoint
         self.dtype = dtype
-        self.num_mp_partitions = num_mp_partitions
-        self.logical_axis_rules = logical_axis_rules
 
         self.processor = WhisperProcessor.from_pretrained(self.checkpoint)
         self.feature_extractor = self.processor.feature_extractor
@@ -78,7 +74,7 @@ class FlaxWhisperPipline:
         # use pmap for DP by default - this is compatible on a Colab TPU v2
         self.p_generate = jax.pmap(generate, static_broadcasted_argnums=(3,))
 
-    def shard_params(self):
+    def shard_params(self, num_mp_partitions=1, logical_axis_rules=logical_axis_rules_dp):
         def init_fn():
             input_shape = (1, 80, 3000)
 
@@ -117,7 +113,7 @@ class FlaxWhisperPipline:
         )
 
         partitioner = PjitPartitioner(
-            num_partitions=self.num_mp_partitions, logical_axis_rules=self.logical_axis_rules
+            num_partitions=num_mp_partitions, logical_axis_rules=logical_axis_rules
         )
 
         mesh_axes = partitioner.get_mesh_axes(state)
