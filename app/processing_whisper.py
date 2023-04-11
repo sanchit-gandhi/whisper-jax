@@ -76,7 +76,9 @@ class WhisperPrePostProcessor(WhisperProcessor):
         if not isinstance(inputs, np.ndarray):
             raise ValueError(f"We expect a numpy ndarray as input, got `{type(inputs)}`.")
         if len(inputs.shape) != 1:
-            raise ValueError(f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs.shape)} channels.")
+            raise ValueError(
+                f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs.shape)} channels."
+            )
 
         if stride is not None:
             if stride[0] + stride[1] > inputs.shape[0]:
