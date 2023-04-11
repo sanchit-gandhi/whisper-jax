@@ -4,6 +4,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import requests
+from flax import jax_utils
+from flax.training.common_utils import shard
 from flax.core.frozen_dict import freeze
 from jax.sharding import PartitionSpec as P
 from transformers import WhisperProcessor
@@ -72,7 +74,9 @@ class FlaxWhisperPipline:
             return output_ids
 
         # use pmap for DP by default - this is compatible on a Colab TPU v2
-        self.p_generate = jax.pmap(generate, static_broadcasted_argnums=(3,))
+        self.params = jax_utils.replicate(self.params)
+        self.p_generate = jax.pmap(generate, "input_features", static_broadcasted_argnums=(3,))
+        self.is_sharded = False
 
     def shard_params(self, num_mp_partitions=1, logical_axis_rules=logical_axis_rules_dp):
         def init_fn():
@@ -122,7 +126,8 @@ class FlaxWhisperPipline:
         p_shard_params = partitioner.partition(self.model.to_bf16, (params_spec,), params_spec)
 
         # This will auto-magically run in mesh context
-        self.params = p_shard_params(freeze(self.params))
+        self.params = p_shard_params(freeze(jax_utils.unreplicate(self.params)))
+        self.is_sharded = True
 
         def generate(params, input_features, forced_decoder_ids, return_timestamps):
             output_ids = self.model.pipeline_generate(
@@ -146,9 +151,14 @@ class FlaxWhisperPipline:
         forced_decoder_ids = self.get_forced_decoder_ids(
             language=language, task=task, return_timestamps=return_timestamps
         )
+        if not self.is_sharded:
+            input_features = shard(input_features)
+            forced_decoder_ids = np.tile(forced_decoder_ids, (4, 1, 1))
         output_ids = self.p_generate(
             freeze(self.params), input_features, forced_decoder_ids, return_timestamps
         ).sequences
+        if not self.is_sharded:
+            output_ids = jax.device_get(output_ids.reshape(-1, self.max_length))
         return output_ids
 
     def get_forced_decoder_ids(self, generation_config=None, task=None, language=None, return_timestamps=False):
