@@ -43,6 +43,7 @@ class FlaxWhisperPipline:
         dtype=jnp.bfloat16,
         num_mp_partitions=1,
         logical_axis_rules=logical_axis_rules_dp,
+        batch_size=None,
         max_length=None,
     ):
         self.checkpoint = checkpoint
@@ -62,6 +63,7 @@ class FlaxWhisperPipline:
 
         self.max_length = max_length if max_length is not None else self.model.generation_config.max_length
         self.min_batch_size = jax.device_count()
+        self.batch_size = batch_size if batch_size is not None else self.min_batch_size  # we need a minimum of 1 batch per-device
 
         def generate(params, input_features, forced_decoder_ids, return_timestamps):
             output_ids = self.model.pipeline_generate(
@@ -380,12 +382,16 @@ class FlaxWhisperPipline:
         inputs,
         chunk_length_s=30,
         stride_length_s=None,
-        batch_size=16,
+        batch_size=None,
         language=None,
         task=None,
         return_timestamps=None,
         generate_kwargs=None,
     ):
+        batch_size = batch_size if batch_size is not None else self.batch_size
+        if batch_size % self.min_batch_size != 0:
+            raise ValueError(f"Batch size must be a multiple of the number of JAX devices, but got batch size {batch_size} and num devices {self.min_batch_size}.")
+
         dataloader = self.preprocess_batch(
             inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size
         )
