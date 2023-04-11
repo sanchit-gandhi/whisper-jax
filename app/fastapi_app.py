@@ -37,7 +37,7 @@ def download_youtube(yt_url, max_filesize=1):
     if stream.filesize_gb > max_filesize:
         raise HTTPException(
             status_code=418,
-            detail=f"Maximum YouTube file size is {str(max_filesize)}GB, got {str(stream.filesize_gb)}GB.",
+            detail=f"Maximum YouTube file size is {max_filesize}GB, got {stream.filesize_gb}GB.",
         )
 
     stream.download(filename="audio.mp3")
@@ -87,18 +87,18 @@ def check_inputs(inputs, language, task, return_timestamps):
 
         if not isinstance(inputs["array"], np.ndarray):
             raise HTTPException(
-                status_code=418, detail=f"We expect a numpy ndarray as input, got {str(type(inputs['array']))}"
+                status_code=418, detail=f"We expect a numpy ndarray as input, got {type(inputs['array'])}"
             )
 
         if len(inputs["array"].shape) != 1:
             raise HTTPException(
                 status_code=418,
-                detail=f"We expect a single channel audio input for the Flax Whisper API, got {str(len(inputs['array'].shape))} channels.",
+                detail=f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs['array'].shape)} channels.",
             )
     else:
         raise HTTPException(
             status_code=418,
-            detail=f"We expect an audio input in the form of bytes or dictionary, but got {str(type(inputs))}.",
+            detail=f"We expect an audio input in the form of bytes or dictionary, but got {type(inputs)}.",
         )
 
     language_token = None

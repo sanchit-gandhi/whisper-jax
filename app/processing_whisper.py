@@ -74,13 +74,13 @@ class WhisperPrePostProcessor(WhisperProcessor):
                 ratio = 1
 
         if not isinstance(inputs, np.ndarray):
-            raise ValueError(f"We expect a numpy ndarray as input, got `{type(inputs)}`")
+            raise ValueError(f"We expect a numpy ndarray as input, got `{type(inputs)}`.")
         if len(inputs.shape) != 1:
-            raise ValueError("We expect a single channel audio input for AutomaticSpeechRecognitionPipeline")
+            raise ValueError(f"We expect a single channel audio input for the Flax Whisper API, got {len(inputs.shape)} channels.")
 
         if stride is not None:
             if stride[0] + stride[1] > inputs.shape[0]:
-                raise ValueError("Stride is too large for input")
+                raise ValueError("Stride is too large for input.")
 
             # Stride needs to get the chunk length here, it's going to get
             # swallowed by the `feature_extractor` later, and then batching
@@ -100,7 +100,7 @@ class WhisperPrePostProcessor(WhisperProcessor):
             stride_right = round(stride_length_s[1] * self.feature_extractor.sampling_rate)
 
             if chunk_len < stride_left + stride_right:
-                raise ValueError("Chunk length must be superior to stride length")
+                raise ValueError("Chunk length must be superior to stride length.")
 
             for item in self.chunk_iter_with_batch(
                 inputs,

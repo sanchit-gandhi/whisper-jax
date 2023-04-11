@@ -93,7 +93,11 @@ if __name__ == "__main__":
 
         dataloader = processor.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
 
-        model_outputs = pool.map(partial(forward, task=task, return_timestamps=return_timestamps), dataloader)
+        try:
+            model_outputs = pool.map(partial(forward, task=task, return_timestamps=return_timestamps), dataloader)
+        except ValueError as err:
+            # pre-processor does all the necessary compatibility checks for our audio inputs
+            return err, None
 
         post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
         timestamps = post_processed.get("chunks")
