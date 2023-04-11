@@ -58,7 +58,7 @@ class FlaxWhisperPipline:
     def __init__(
         self,
         checkpoint="openai/whisper-large-v2",
-        dtype=jnp.bfloat16,
+        dtype=jnp.float32,
         batch_size=None,
         max_length=None,
     ):
