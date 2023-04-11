@@ -18,7 +18,6 @@ batch_size = 16
 chunk_length_s = 30
 
 pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16)
-pipeline.shard_params()
 
 language_codes = {lang: f"<|{TO_LANGUAGE_CODE[lang]}|>" for lang in TO_LANGUAGE_CODE}
 generation_config = pipeline.model.generation_config
@@ -167,4 +166,24 @@ async def generate(request: Request):
         batch_size=batch_size,
         chunk_length_s=chunk_length_s,
     )
+    return generation
+
+@app.post("/generate_from_features")
+async def generate_from_features(request: Request):
+    content = await request.json()
+    batch = content.get("batch", None)
+    feature_shape = content.get("feature_shape", None)
+    language = content.get("language", None)
+    task = content.get("task", "transcribe")
+    return_timestamps = content.get("return_timestamps", False)
+
+    batch["input_features"] = np.frombuffer(base64.b64decode(batch["input_features"]), dtype=np.float32).reshape(
+        feature_shape
+    )
+
+    generation = pipeline.forward(
+        batch, batch_size=batch_size, language=language, task=task, return_timestamps=return_timestamps
+    )
+    generation["tokens"] = generation["tokens"].tolist()
+
     return generation
