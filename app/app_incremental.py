@@ -87,7 +87,10 @@ if __name__ == "__main__":
             inputs = f.read()
 
         inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
-        inputs = {"array": base64.b64encode(inputs.tobytes()).decode(), "sampling_rate": processor.feature_extractor.sampling_rate}
+        inputs = {
+            "array": base64.b64encode(inputs.tobytes()).decode(),
+            "sampling_rate": processor.feature_extractor.sampling_rate,
+        }
 
         text, timestamps = inference(inputs=inputs, task=task, return_timestamps=return_timestamps)
 
@@ -196,7 +199,9 @@ if __name__ == "__main__":
     demo = gr.Blocks()
 
     with demo:
-        gr.TabbedInterface([audio, audio_chunked, youtube], ["Transcribe Audio", "Transcribe Audio Chunked", "Transcribe YouTube"])
+        gr.TabbedInterface(
+            [audio, audio_chunked, youtube], ["Transcribe Audio", "Transcribe Audio Chunked", "Transcribe YouTube"]
+        )
 
     demo.queue()
     demo.launch()

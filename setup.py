@@ -20,6 +20,7 @@ from codecs import open
 
 from setuptools import find_packages, setup
 
+
 _deps = [
     "transformers>=4.27.4",
     "flax",
