@@ -59,7 +59,7 @@ pip install --upgrade --no-deps --force-reinstall git+https://github.com/sanchit
 
 ## Pipeline Usage
 
-The recommended way of running Whisper JAX is through the `FlaxWhisperPipline` abstraction class. This class handles all
+The recommended way of running Whisper JAX is through the [`FlaxWhisperPipline`](https://github.com/sanchit-gandhi/whisper-jax/blob/main/whisper_jax/pipeline.py#L57) abstraction class. This class handles all
 the necessary pre- and post-processing, as well as wrapping the generate method for data parallelism across accelerator devices.
 
 Whisper JAX makes use of JAX's `pmap` function for data parallelism across GPU/TPU devices. This function is _Just In Time (JIT)_ 
@@ -120,7 +120,7 @@ text = pipeline("audio.mp3", task="translate")
 
 ### Timestamps
 
-The `FlaxWhisperPipeline` also supports timestamp prediction. Note that enabling timestamps will require a second JIT compilation of the 
+The [`FlaxWhisperPipline`](https://github.com/sanchit-gandhi/whisper-jax/blob/main/whisper_jax/pipeline.py#L57) also supports timestamp prediction. Note that enabling timestamps will require a second JIT compilation of the 
 forward call, this time including the timestamp outputs:
 
 ```python
@@ -211,7 +211,7 @@ the official OpenAI Whisper checkpoints:
 Should you wish to use a fine-tuned Whisper checkpoint in Whisper JAX, you should first convert the PyTorch weights to Flax.
 This is straightforward through use of the `from_pt` argument, which will convert the PyTorch state dict to a frozen Flax 
 parameter dictionary on the fly. You can then push the converted Flax weights to the Hub to be used directly in Flax 
-the next time they are required. Converting weights from PyTorch to Flax requires both PyTorch and Flax to be installed.
+the next time they are required. Note that converting weights from PyTorch to Flax requires both PyTorch and Flax to be installed.
 
 For example, to convert the fine-tuned checkpoint `"sanchit-gandhi/whisper-small-hi"` from the blog post [Fine-Tuning Whisper](https://huggingface.co/blog/fine-tune-whisper):
 ```python
