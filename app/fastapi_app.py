@@ -169,7 +169,7 @@ async def generate(request: Request):
     return generation
 
 
-@app.post("/generate_from_features")
+@app.post("/generate_from_features/")
 async def generate_from_features(request: Request):
     content = await request.json()
     batch = content.get("batch", None)

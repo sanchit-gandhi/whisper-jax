@@ -23,7 +23,7 @@ article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 t
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 CHUNK_LENGTH_S = 30
 BATCH_SIZE = 16
-NUM_PROC = 16
+NUM_PROC = 8
 
 
 def query(payload):
