@@ -366,10 +366,15 @@ on GPU. Whisper JAX runs in JAX on TPU. OpenAI transcribes the audio sequentiall
 and Whisper JAX use a batching algorithm, where chunks of audio are batched together and transcribed in parallel 
 (see section [Batching](#batching)).
 
-|        | OpenAI | Transformers | Whisper JAX |
-|--------|--------|--------------|-------------|
-| 1 min  | 13.8   | 4.54         | 0.45        |
-| 10 min | 108.3  | 20.2         | 2.01        |
-| 1 hour | 1001.0 | 126.1        | 13.8        |
+|         | OpenAI        | Transformers  | Whisper JAX |
+|---------|---------------|---------------|-------------|
+|         |               |               |             |
+| Backend | PyTorch + GPU | PyTorch + GPU | JAX + TPU   |
+| Batched | No            | Yes           | Yes         |
+|         |               |               |             |
+| 1 min   | 13.8          | 4.54          | 0.45        |
+| 10 min  | 108.3         | 20.2          | 2.01        |
+| 1 hour  | 1001.0        | 126.1         | 13.8        |
+|         |               |               |             |
 
 [^1]: See WER results from Colab: https://colab.research.google.com/drive/1rS1L4YSJqKUH_3YxIQHBI982zso23wor?usp=sharing
