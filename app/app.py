@@ -13,7 +13,7 @@ from transformers.pipelines.audio_utils import ffmpeg_read
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **100x** faster, making it the fastest Whisper API available."
+description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over **70x** faster, making it the fastest Whisper API available."
 
 API_URL = os.getenv("API_URL")
 API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
