@@ -62,6 +62,22 @@ class FlaxWhisperPipline:
         batch_size=None,
         max_length=None,
     ):
+        """
+        Args
+            checkpoint (`str`, *optional*, defaults to `"openai/whisper-large-v2"):
+                The Whisper checkpoint to use with the pipeline. Must be an available checkpoint on the Hugging Face Hub
+                with Flax weights.
+            dtype (`jax.numpy.dtype`, *optional*, defaults to `jax.numpy.float32`):
+                The data type of the computation. Can be one of `jax.numpy.float32`, `jax.numpy.float16` (on GPUs) and
+                `jax.numpy.bfloat16` (on TPUs). This can be used to enable half-precision inference on GPUs or TPUs.
+                If specified all the computation will be performed with the given `dtype`. **Note that this only
+                specifies the dtype of the computation and does not influence the dtype of model parameters.**
+            batch_size (`int`, *optional*, defaults to the minimum per-device batch size, i.e. `jax.local_device_count()`):
+                The batch size to be used in chunking transcription. Beneficial for transcribing long audio files. Passing
+                a batch size in the `__init__` method will be superseded by any batch size passed to the `__call__` method.
+            max_length (`int`, *optional*):
+                The maximum numbers of tokens to generate. Defaults to `model.config.max_length`.
+        """
         self.checkpoint = checkpoint
         self.dtype = dtype
 
@@ -403,7 +419,7 @@ class FlaxWhisperPipline:
     def __call__(
         self,
         inputs,
-        chunk_length_s=30,
+        chunk_length_s=30.0,
         stride_length_s=None,
         batch_size=None,
         language=None,
@@ -411,6 +427,61 @@ class FlaxWhisperPipline:
         return_timestamps=None,
         generate_kwargs=None,
     ):
+        """
+        Transcribe an audio input sequence to a text transcription, optionally with timestamps.
+
+        Args:
+            inputs (`np.ndarray` or `bytes` or `str` or `dict`):
+                The inputs is either:
+                    - `str` that is the filename of the audio file, the file will be read at the correct sampling rate
+                      to get the waveform using *ffmpeg*. This requires *ffmpeg* to be installed on the system.
+                    - `bytes` is the byte content of an audio file and is interpreted by *ffmpeg* in the
+                      same way.
+                    - (`np.ndarray` of shape (n, ) of type `np.float32` or `np.float64`)
+                        Raw audio assumed to be at the correct sampling rate (16kHz). Note that no further sampling
+                        rate check will be done.
+                    - `dict` form can be used to pass raw audio sampled at arbitrary `sampling_rate` and let this
+                      pipeline do the resampling. The dict must be in the format `{"sampling_rate": int, "array":
+                      np.array}`. Optionally an additional argument `"stride": (left: int, right: int)` can be used to
+                       ask the pipeline to treat the first `left` samples and last `right` samples to be ignored in
+                       decoding (but used at inference to provide more context to the model). In general, this additional
+                       stride argument is not required.
+            chunk_length_s (`float`, *optional*, defaults to 30.0):
+                The input length for each chunk. If `chunk_length_s = 0` then chunking is disabled. By default, the chunk
+                length is set 30.0s, equal to Whisper's context window.
+            stride_length_s (`float`, *optional*, defaults to `chunk_length_s / 6`):
+                The length of stride on the left and right of each chunk. Used only with `chunk_length_s > 0`. This enables
+                the model to *see* more context and infer letters better than without this context but the pipeline
+                discards the stride bits at the end to make the final reconstitution as perfect as possible.
+
+                <Tip>
+
+                For more information on how to effectively use `stride_length_s`, refer to the [ASR chunking
+                blog post](https://huggingface.co/blog/asr-chunking).
+
+                </Tip>
+            batch_size (`int`, *optional*, defaults to the minimum per-device batch size, i.e. `jax.local_device_count()`):
+                The batch size to be used in chunking transcription. Beneficial for transcribing long audio files. Passing
+                a batch size in the `__call__` method will supersede any batch size passed to the `__init__`.
+            task (`str`, *optional*):
+                Task to use for generation, either `"transcribe"` or `"translate"`. Defaults to `"transcribe"`.
+            language (`str`, *optional*):
+                Language token to use for generation, can be either in the form of `"<|en|>"`, `"en"` or `"english"`.
+                Defaults to `None`, meaning the language is automatically inferred from the audio input.
+            return_timestamps (*optional*, `bool`):
+                Whether to return timestamps in the prediction. Defaults to False. If set to true, the pipeline
+                will return two keys in the output dictionary: `"text"` containing the text transcription, and `"chunks"`
+                containing the transcription segments chunked by their utterance-level timestamps.
+
+        Return:
+            `Dict`: A dictionary with the following keys:
+                - **text** (`str` ) -- The recognised text.
+                - **chunks** (*optional(, `List[Dict]`)
+                    When using `return_timestamps`, the `chunks` will become a list containing all the various text
+                    chunks identified by the model, *e.g.* `[{"text": "hi ", "timestamps": (0.5,0.9), {"text":
+                    "there", "timestamps": (1.0, 1.5)}]`. The original full text can roughly be recovered by doing
+                    `"".join(chunk["text"] for chunk in output["chunks"])`.
+        """
         batch_size = batch_size if batch_size is not None else self.batch_size
         if batch_size % self.min_batch_size != 0:
             raise ValueError(
