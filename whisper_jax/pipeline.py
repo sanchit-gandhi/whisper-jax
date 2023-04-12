@@ -292,23 +292,18 @@ class FlaxWhisperPipline:
 
         stride = None
         if isinstance(inputs, dict):
-            stride = inputs.pop("stride", None)
+            stride = inputs.get("stride", None)
             # Accepting `"array"` which is the key defined in `datasets` for
             # better integration
-            if not ("sampling_rate" in inputs and ("raw" in inputs or "array" in inputs)):
+            if not ("sampling_rate" in inputs and "array" in inputs):
                 raise ValueError(
-                    "When passing a dictionary to FlaxWhisperPipline, the dict needs to contain a "
-                    '"raw" or "array" key containing the numpy array representing the audio, and a "sampling_rate" key '
+                    "When passing a dictionary to FlaxWhisperPipline, the dict needs to contain an 'array' key "
+                    "containing the numpy array representing the audio, and a 'sampling_rate' key "
                     "containing the sampling rate associated with the audio array."
                 )
 
-            _inputs = inputs.pop("raw", None)
-            if _inputs is None:
-                # Remove path which will not be used from `datasets`.
-                inputs.pop("path", None)
-                _inputs = inputs.pop("array", None)
-            in_sampling_rate = inputs.pop("sampling_rate")
-            inputs = _inputs
+            in_sampling_rate = inputs.get("sampling_rate")
+            inputs = inputs.get("array", None)
 
             if in_sampling_rate != self.feature_extractor.sampling_rate:
                 try:
