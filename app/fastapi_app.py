@@ -30,14 +30,14 @@ def read_root():
     return {"Hello": "World"}
 
 
-def download_youtube(yt_url, max_filesize=1):
+def download_youtube(yt_url, max_filesize=50.0):
     yt = pytube.YouTube(yt_url)
     stream = yt.streams.filter(only_audio=True)[0]
 
-    if stream.filesize_gb > max_filesize:
+    if stream.filesize_mb > max_filesize:
         raise HTTPException(
             status_code=418,
-            detail=f"Maximum YouTube file size is {max_filesize}GB, got {stream.filesize_gb}GB.",
+            detail=f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.",
         )
 
     stream.download(filename="audio.mp3")

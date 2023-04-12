@@ -13,7 +13,7 @@ from transformers.pipelines.audio_utils import ffmpeg_read
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x** faster](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available."
+description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available."
 
 API_URL = os.getenv("API_URL")
 API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
@@ -24,6 +24,7 @@ language_names = sorted(TO_LANGUAGE_CODE.keys())
 CHUNK_LENGTH_S = 30
 BATCH_SIZE = 16
 NUM_PROC = 8
+FILE_LIMIT_MB = 1000
 
 
 def query(payload):
@@ -81,9 +82,13 @@ if __name__ == "__main__":
             )
 
         elif (microphone is None) and (file_upload is None):
-            return "ERROR: You have to either use the microphone or upload an audio file"
+            return "ERROR: You have to either use the microphone or upload an audio file", None
 
         inputs = microphone if microphone is not None else file_upload
+
+        file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
+        if file_size_mb > FILE_LIMIT_MB:
+            return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
 
         with open(inputs, "rb") as f:
             inputs = f.read()
@@ -161,5 +166,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([audio_chunked, youtube], ["Transcribe Audio", "Transcribe YouTube"])
 
-    demo.queue(max_size=10)
+    demo.queue(concurrency_count=5, max_size=10)
     demo.launch()
