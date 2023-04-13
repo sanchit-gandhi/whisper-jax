@@ -17,14 +17,14 @@ cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
 BATCH_SIZE = 16
 CHUNK_LENGTH_S = 30
-NUM_PROC = 16
+NUM_PROC = 32
 FILE_LIMIT_MB = 1000
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
 description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
 
-Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed on the demo pane. For details on creating your own inference endpoint, refer to the [instructions](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint) on the Whisper JAX repository.
+Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. For details on creating your own inference endpoint, refer to the [instructions](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint) on the Whisper JAX repository.
 """
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
@@ -49,11 +49,15 @@ if __name__ == "__main__":
         all_chunk_start_idx = np.arange(0, inputs_len, step)
         num_samples = len(all_chunk_start_idx)
         num_batches = math.ceil(num_samples / BATCH_SIZE)
-        dummy_batches = list(range(num_batches))  # Gradio progress bar not compatible with generator, see https://github.com/gradio-app/gradio/issues/3841
+        dummy_batches = list(
+            range(num_batches)
+        )  # Gradio progress bar not compatible with generator, see https://github.com/gradio-app/gradio/issues/3841
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
         progress(0, desc="Pre-processing audio file...")
-        dataloader = pool.map(identity, dataloader)  # TODO(SG): wrap this in a progress bar once Gradio progress bar bug is fixed
+        dataloader = pool.map(
+            identity, dataloader
+        )  # TODO(SG): wrap this in a progress bar once Gradio progress bar bug is fixed
 
         model_outputs = []
         # iterate over our chunked audio samples
@@ -70,10 +74,7 @@ if __name__ == "__main__":
         progress(0, desc="Loading audio file...")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
-            return (
-                f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.",
-                None,
-            )
+            raise gr.Error(f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.")
 
         with open(inputs, "rb") as f:
             inputs = f.read()
@@ -91,14 +92,14 @@ if __name__ == "__main__":
         )
         return HTML_str
 
-    def download_youtube(yt_url, max_filesize=50.0):
+    def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
+        progress(0, desc="Loading audio file...")
+        html_embed_str = _return_yt_html_embed(yt_url)
         yt = pytube.YouTube(yt_url)
         stream = yt.streams.filter(only_audio=True)[0]
 
         if stream.filesize_mb > max_filesize:
-            raise ValueError(
-                f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.",
-            )
+            raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
 
         stream.download(filename="audio.mp3")
 
@@ -107,12 +108,6 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        return inputs
-
-    def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress()):
-        progress(0, desc="Loading audio file...")
-        html_embed_str = _return_yt_html_embed(yt_url)
-        inputs = download_youtube(yt_url)
         text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return html_embed_str, text, timestamps
 
