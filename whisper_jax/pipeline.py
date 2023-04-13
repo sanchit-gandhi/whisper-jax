@@ -403,7 +403,7 @@ class FlaxWhisperPipline:
         ]
 
         # tokenizer's decode method expects an extra dim - we insert it here for convenience
-        out = {"tokens": np.asarray(pred_ids[:, None, :])}
+        out = {"tokens": pred_ids[:, None, :]}
 
         stride = model_inputs.pop("stride", None)
         if stride is not None:
