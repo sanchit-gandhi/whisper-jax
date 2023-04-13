@@ -73,19 +73,7 @@ if __name__ == "__main__":
     processor = WhisperPrePostProcessor.from_pretrained("openai/whisper-large-v2")
     pool = Pool(NUM_PROC)
 
-    def transcribe_chunked_audio(microphone, file_upload, task, return_timestamps):
-        warn_output = ""
-        if (microphone is not None) and (file_upload is not None):
-            warn_output = (
-                "WARNING: You've uploaded an audio file and used the microphone. "
-                "The recorded file from the microphone will be used and the uploaded audio will be discarded.\n"
-            )
-
-        elif (microphone is None) and (file_upload is None):
-            return "ERROR: You have to either use the microphone or upload an audio file", None
-
-        inputs = microphone if microphone is not None else file_upload
-
+    def transcribe_chunked_audio(inputs, task, return_timestamps):
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
             return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
@@ -106,7 +94,7 @@ if __name__ == "__main__":
 
         post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
         timestamps = post_processed.get("chunks")
-        return warn_output + post_processed["text"], timestamps
+        return post_processed["text"], timestamps
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -123,10 +111,26 @@ if __name__ == "__main__":
 
         return html_embed_str, text, timestamps
 
-    audio_chunked = gr.Interface(
+    microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
             gr.inputs.Audio(source="microphone", optional=True, type="filepath"),
+            gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
+            gr.inputs.Checkbox(default=False, label="Return timestamps"),
+        ],
+        outputs=[
+            gr.outputs.Textbox(label="Transcription"),
+            gr.outputs.Textbox(label="Timestamps"),
+        ],
+        allow_flagging="never",
+        title=title,
+        description=description,
+        article=article,
+    )
+
+    audio_chunked = gr.Interface(
+        fn=transcribe_chunked_audio,
+        inputs=[
             gr.inputs.Audio(source="upload", optional=True, type="filepath"),
             gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
@@ -164,7 +168,7 @@ if __name__ == "__main__":
     demo = gr.Blocks()
 
     with demo:
-        gr.TabbedInterface([audio_chunked, youtube], ["Transcribe Audio", "Transcribe YouTube"])
+        gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Transcribe Microphone", "Transcribe Audio", "Transcribe YouTube"])
 
     demo.queue(max_size=3)
     demo.launch(show_api=False)
