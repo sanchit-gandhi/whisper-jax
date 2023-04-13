@@ -412,7 +412,45 @@ server on the corresponding port:
 ngrok http --subdomain=whisper-jax 8000
 ```
 
-And finally, we create a Gradio demo for the frontend, the code for which resides in [`app.py`](app/app.py). You can launch this 
+We can now send json requests to our endpoint using ngrok. The function `transcribe_audio` loads an audio file, encodes it 
+in bytes, sends it to our endpoint, and returns the transcription:
+
+```python
+import base64
+from transformers.pipelines.audio_utils import ffmpeg_read
+import requests
+
+API_URL = "https://whisper-jax.ngrok.io/generate/"  # make sure this URL matches your ngrok subdomain
+
+
+def query(payload):
+    """Send json payload to ngrok API URL and return response."""
+    response = requests.post(API_URL, json=payload)
+    return response.json(), response.status_code
+
+
+def transcribe_audio(audio_file, task="transcribe", return_timestamps=False):
+    with open(audio_file, "rb") as f:
+        inputs = f.read()
+    inputs = ffmpeg_read(inputs, sampling_rate=16000)
+    # encode to bytes to make json compatible
+    inputs = {"array": base64.b64encode(inputs.tobytes()).decode(), "sampling_rate": 16000}
+    # format as a json payload and send query
+    payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
+    data, status_code = query(payload)
+
+    if status_code == 200:
+        output = {"text": data["text"], "chunks": data.get("chunks", None)}
+    else:
+        output = data["detail"]
+
+    return output
+
+# transcribe an audio file using our endpoint
+output = transcribe_audio("audio.mp3")
+```
+
+Finally, we can create a Gradio demo for the frontend, the code for which resides in [`app.py`](app/app.py). You can launch this 
 application by providing the ngrok subdomain:
 ```
 API_URL=https://whisper-jax.ngrok.io/generate/ API_URL_FROM_FEATURES=https://whisper-jax.ngrok.io/generate_from_features/ python app.py

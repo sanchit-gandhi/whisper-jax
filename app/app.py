@@ -35,12 +35,8 @@ def query(payload):
     return response.json(), response.status_code
 
 
-def inference(inputs, language=None, task=None, return_timestamps=False):
+def inference(inputs, task=None, return_timestamps=False):
     payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
-
-    # langauge can come as an empty string from the Gradio `None` default, so we handle it separately
-    if language:
-        payload["language"] = language
 
     data, status_code = query(payload)
 
@@ -49,10 +45,7 @@ def inference(inputs, language=None, task=None, return_timestamps=False):
     else:
         text = data["detail"]
 
-    if return_timestamps:
-        timestamps = data["chunks"]
-    else:
-        timestamps = None
+    timestamps = data.get("chunks", None)
 
     return text, timestamps
 
