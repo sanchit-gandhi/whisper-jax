@@ -1,15 +1,20 @@
-import base64
 import os
-from functools import partial
-from multiprocessing import Pool
-
 import gradio as gr
+import jax.numpy as jnp
+import math
 import numpy as np
-import requests
-from processing_whisper import WhisperPrePostProcessor
+import pytube
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
+from jax.experimental.compilation_cache import compilation_cache as cc
 
+from whisper_jax import FlaxWhisperPipline
+
+cc.initialize_cache("./jax_cache")
+checkpoint = "openai/whisper-large-v2"
+BATCH_SIZE = 16
+CHUNK_LENGTH_S = 30
+FILE_LIMIT_MB = 1000
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -18,58 +23,43 @@ description = """Whisper JAX is an optimised implementation of the [Whisper mode
 Note that using microphone or audio file requires the audio input to be transferred from the Gradio demo to the TPU, which for large audio files can be slow. We recommend using YouTube where possible, since this directly downloads the audio file to the TPU, skipping the file transfer step.
 """
 
-API_URL = os.getenv("API_URL")
-API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
-
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
-CHUNK_LENGTH_S = 30
-BATCH_SIZE = 16
-NUM_PROC = 16
-FILE_LIMIT_MB = 1000
-
-
-def query(payload):
-    response = requests.post(API_URL, json=payload)
-    return response.json(), response.status_code
-
-
-def inference(inputs, task=None, return_timestamps=False):
-    payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
-
-    data, status_code = query(payload)
-
-    if status_code == 200:
-        text = data["text"]
-    else:
-        text = data["detail"]
-
-    timestamps = data.get("chunks", None)
-
-    return text, timestamps
-
-
-def chunked_query(payload):
-    response = requests.post(API_URL_FROM_FEATURES, json=payload)
-    return response.json()
-
-
-def forward(batch, task=None, return_timestamps=False):
-    feature_shape = batch["input_features"].shape
-    batch["input_features"] = base64.b64encode(batch["input_features"].tobytes()).decode()
-    outputs = chunked_query(
-        {"batch": batch, "task": task, "return_timestamps": return_timestamps, "feature_shape": feature_shape}
-    )
-    outputs["tokens"] = np.asarray(outputs["tokens"])
-    return outputs
-
 
 if __name__ == "__main__":
-    processor = WhisperPrePostProcessor.from_pretrained("openai/whisper-large-v2")
-    pool = Pool(NUM_PROC)
+    pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16, batch_size=BATCH_SIZE)
+    stride_length_s = CHUNK_LENGTH_S / 6
+    chunk_len = round(CHUNK_LENGTH_S * pipeline.feature_extractor.sampling_rate)
+    stride_left = stride_right = round(stride_length_s * pipeline.feature_extractor.sampling_rate)
 
-    def transcribe_chunked_audio(inputs, task, return_timestamps):
+    def tqdm_generate(inputs: dict, task: str, return_timestamps: bool, progress: gr.Progress):
+        inputs_len = inputs["array"].shape[0]
+        step = chunk_len - stride_left - stride_right
+
+        all_chunk_start_idx = np.arange(0, inputs_len, step)
+        num_samples = len(all_chunk_start_idx)
+        num_batches = math.ceil(num_samples / BATCH_SIZE)
+        gradio_batches = [_ for _ in range(num_batches)]
+
+        dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
+
+        progress(0, desc="Starting transcription...")
+        model_outputs = []
+        # iterate over our chunked audio samples
+        for batch, _ in zip(dataloader, progress.tqdm(gradio_batches, desc="Transcribing...")):
+            model_outputs.append(
+                pipeline.forward(
+                    batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps
+                )
+            )
+
+        post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
+        timestamps = post_processed.get("chunks")
+        return post_processed["text"], timestamps
+
+
+    def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
             return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
@@ -77,20 +67,10 @@ if __name__ == "__main__":
         with open(inputs, "rb") as f:
             inputs = f.read()
 
-        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
-        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
-
-        dataloader = processor.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
-
-        try:
-            model_outputs = pool.map(partial(forward, task=task, return_timestamps=return_timestamps), dataloader)
-        except ValueError as err:
-            # pre-processor does all the necessary compatibility checks for our audio inputs
-            return err, None
-
-        post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
-        timestamps = post_processed.get("chunks")
-        return post_processed["text"], timestamps
+        inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
+        text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
+        return text, timestamps
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -100,11 +80,27 @@ if __name__ == "__main__":
         )
         return HTML_str
 
-    def transcribe_youtube(yt_url, task, return_timestamps):
+    def download_youtube(yt_url, max_filesize=50.0):
+        yt = pytube.YouTube(yt_url)
+        stream = yt.streams.filter(only_audio=True)[0]
+
+        if stream.filesize_mb > max_filesize:
+            raise ValueError(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.",
+            )
+
+        stream.download(filename="audio.mp3")
+
+        with open("audio.mp3", "rb") as f:
+            inputs = f.read()
+
+        inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
+        return inputs
+
+    def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress()):
         html_embed_str = _return_yt_html_embed(yt_url)
-
-        text, timestamps = inference(inputs=yt_url, task=task, return_timestamps=return_timestamps)
-
+        inputs = download_youtube(yt_url)
+        text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return html_embed_str, text, timestamps
 
     microphone_chunked = gr.Interface(
