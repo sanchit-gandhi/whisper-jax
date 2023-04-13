@@ -23,7 +23,7 @@ article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 t
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 CHUNK_LENGTH_S = 30
 BATCH_SIZE = 16
-NUM_PROC = 8
+NUM_PROC = 16
 FILE_LIMIT_MB = 1000
 
 
@@ -166,5 +166,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([audio_chunked, youtube], ["Transcribe Audio", "Transcribe YouTube"])
 
-    demo.queue(concurrency_count=5, max_size=10)
-    demo.launch()
+    demo.queue(max_size=3)
+    demo.launch(show_api=False)
