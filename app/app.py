@@ -72,7 +72,10 @@ if __name__ == "__main__":
     def transcribe_chunked_audio(inputs, task, return_timestamps):
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
-            return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
+            return (
+                f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.",
+                None,
+            )
 
         with open(inputs, "rb") as f:
             inputs = f.read()

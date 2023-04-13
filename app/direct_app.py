@@ -1,16 +1,17 @@
-import os
-import gradio as gr
-import jax.numpy as jnp
 import math
-import numpy as np
-import pytube
-from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
-from transformers.pipelines.audio_utils import ffmpeg_read
-from jax.experimental.compilation_cache import compilation_cache as cc
-
+import os
 from multiprocessing import Pool
 
+import gradio as gr
+import jax.numpy as jnp
+import numpy as np
+import pytube
+from jax.experimental.compilation_cache import compilation_cache as cc
+from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
+from transformers.pipelines.audio_utils import ffmpeg_read
+
 from whisper_jax import FlaxWhisperPipline
+
 
 cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
@@ -27,8 +28,10 @@ article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 t
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 
+
 def identity(batch):
     return batch
+
 
 if __name__ == "__main__":
     pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16, batch_size=BATCH_SIZE)
@@ -43,7 +46,7 @@ if __name__ == "__main__":
         all_chunk_start_idx = np.arange(0, inputs_len, step)
         num_samples = len(all_chunk_start_idx)
         num_batches = math.ceil(num_samples / BATCH_SIZE)
-        dummy_batches = [_ for _ in range(num_batches)]  # see
+        dummy_batches = list(range(num_batches))  # Gradio progress bar not compatible with generator, see https://github.com/gradio-app/gradio/issues/3841
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
         progress(0, desc="Pre-processing audio file...")
@@ -53,21 +56,21 @@ if __name__ == "__main__":
         # iterate over our chunked audio samples
         for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
             model_outputs.append(
-                pipeline.forward(
-                    batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps
-                )
+                pipeline.forward(batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps)
             )
 
         post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
         timestamps = post_processed.get("chunks")
         return post_processed["text"], timestamps
 
-
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
-            return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
+            return (
+                f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.",
+                None,
+            )
 
         with open(inputs, "rb") as f:
             inputs = f.read()
@@ -90,7 +93,8 @@ if __name__ == "__main__":
         stream = yt.streams.filter(only_audio=True)[0]
 
         if stream.filesize_mb > max_filesize:
-            raise ValueError(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.",
+            raise ValueError(
+                f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.",
             )
 
         stream.download(filename="audio.mp3")
