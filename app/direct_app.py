@@ -8,12 +8,15 @@ from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
 from jax.experimental.compilation_cache import compilation_cache as cc
 
+from multiprocessing import Pool
+
 from whisper_jax import FlaxWhisperPipline
 
 cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
 BATCH_SIZE = 16
 CHUNK_LENGTH_S = 30
+NUM_PROC = 16
 FILE_LIMIT_MB = 1000
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
@@ -24,12 +27,16 @@ article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 t
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 
+def identity(batch):
+    return batch
+
 if __name__ == "__main__":
     pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16, batch_size=BATCH_SIZE)
     stride_length_s = CHUNK_LENGTH_S / 6
     chunk_len = round(CHUNK_LENGTH_S * pipeline.feature_extractor.sampling_rate)
     stride_left = stride_right = round(stride_length_s * pipeline.feature_extractor.sampling_rate)
     step = chunk_len - stride_left - stride_right
+    pool = Pool(NUM_PROC)
 
     def tqdm_generate(inputs: dict, task: str, return_timestamps: bool, progress: gr.Progress):
         inputs_len = inputs["array"].shape[0]
@@ -39,6 +46,8 @@ if __name__ == "__main__":
         dummy_batches = [_ for _ in range(num_batches)]  # see
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
+        progress(0, desc="Pre-processing audio file...")
+        dataloader = pool.map(identity, dataloader)
 
         model_outputs = []
         # iterate over our chunked audio samples
