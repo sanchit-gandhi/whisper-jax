@@ -32,7 +32,7 @@ _extras_dev_deps = [
     "ruff>=0.0.241,<=0.0.259",
 ]
 
-_extras_app_deps = [
+_extras_endpoint_deps = [
     "gradio>=3.25.0",
     "requests>=2.28.2",
     "fastapi>=0.95.0",
@@ -65,6 +65,6 @@ setup(
     install_requires=_deps,
     extras_require={
         "dev": [_extras_dev_deps],
-        "app": [_extras_app_deps],
+        "endpoint": [_extras_endpoint_deps],
     },
 )

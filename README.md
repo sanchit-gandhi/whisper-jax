@@ -366,15 +366,58 @@ on GPU. Whisper JAX runs in JAX on TPU. OpenAI transcribes the audio sequentiall
 and Whisper JAX use a batching algorithm, where chunks of audio are batched together and transcribed in parallel 
 (see section [Batching](#batching)).
 
-|         | OpenAI        | Transformers  | Whisper JAX |
-|---------|---------------|---------------|-------------|
-|         |               |               |             |
-| Backend | PyTorch + GPU | PyTorch + GPU | JAX + TPU   |
-| Batched | No            | Yes           | Yes         |
-|         |               |               |             |
-| 1 min   | 13.8          | 4.54          | 0.45        |
-| 10 min  | 108.3         | 20.2          | 2.01        |
-| 1 hour  | 1001.0        | 126.1         | 13.8        |
-|         |               |               |             |
+|           | OpenAI  | Transformers | Whisper JAX |
+|-----------|---------|--------------|-------------|
+|           |         |              |             |
+| Framework | PyTorch | PyTorch      | JAX         |
+| Backend   | GPU     | GPU          | TPU         |
+|           |         |              |             |
+| 1 min     | 13.8    | 4.54         | 0.45        |
+| 10 min    | 108.3   | 20.2         | 2.01        |
+| 1 hour    | 1001.0  | 126.1        | 13.8        |
+|           |         |              |             |
+
+## Creating an Endpoint
+
+The Whisper JAX model is running as a demo on the Hugging Face Hub:
+
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
+
+However, at peak times there may be a queue of users that limit how quickly your audio input is transcribed. In this case,
+you may benefit from creating your own inference endpoint, such that you have unrestricted access to the Whisper JAX model.
+
+We provide all the necessary code for creating an inference endpoint. To obtain this code, first clone the repository on the GPU/TPU on which you want to host the endpoint:
+```
+git clone https://github.com/sanchit-gandhi/whisper-jax
+```
+
+And then install Whisper JAX from source, with the required additional endpoint dependencies:
+```
+cd whisper-jax
+pip install -e .["endpoint"]
+```
+
+The Python script [`fastapi_app.py`](app/fastapi_app.py) contains the code to launch a FastAPI app with the Whisper large-v2 model.
+By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your 
+GPU/TPU device (as explained in the sections on [Half-precision](#half-precision) and [Batching](#batching)).
+
+You can launch the FastAPI app through Uvicorn using the bash script [`launch_app.sh`](app/launch_app.sh):
+```
+bash launch_app.sh
+```
+
+This will open the port 8000 for the FastAPI app. To direct network requests to the FastAPI app, we use ngrok to launch a 
+server on the corresponding port:
+```
+ngrok http --subdomain=whisper-jax 8000
+```
+
+And finally, we create a Gradio demo for the frontend, the code for which resides in [`app.py`](app/app.py). You can launch this 
+application by providing the ngrok subdomain:
+```
+API_URL=https://whisper-jax.ngrok.io/generate/ API_URL_FROM_FEATURES=https://whisper-jax.ngrok.io/generate_from_features/ python app.py
+```
+
+This will launch a Gradio demo with the same interface as the official Whisper JAX demo.
 
 [^1]: See WER results from Colab: https://colab.research.google.com/drive/1rS1L4YSJqKUH_3YxIQHBI982zso23wor?usp=sharing
