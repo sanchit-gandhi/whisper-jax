@@ -13,7 +13,10 @@ from transformers.pipelines.audio_utils import ffmpeg_read
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available."
+description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
+
+Note that using microphone or audio file requires the audio input to be transferred from the Gradio demo to the TPU, which for large audio files can be slow. We recommend using YouTube where possible, since this directly downloads the audio file to the TPU, skipping the file transfer step.
+"""
 
 API_URL = os.getenv("API_URL")
 API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
@@ -131,7 +134,7 @@ if __name__ == "__main__":
     audio_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
-            gr.inputs.Audio(source="upload", optional=True, type="filepath"),
+            gr.inputs.Audio(source="upload", optional=True, label="Audio file", type="filepath"),
             gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
         ],
@@ -168,7 +171,7 @@ if __name__ == "__main__":
     demo = gr.Blocks()
 
     with demo:
-        gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Transcribe Microphone", "Transcribe Audio", "Transcribe YouTube"])
+        gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Transcribe Microphone", "Transcribe Audio File", "Transcribe YouTube"])
 
     demo.queue(max_size=3)
     demo.launch(show_api=False)
