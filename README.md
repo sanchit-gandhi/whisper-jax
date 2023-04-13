@@ -361,10 +361,12 @@ params = p_shard_params(freeze(params))
 
 We compare Whisper JAX to the official [OpenAI implementation](https://github.com/openai/whisper) and the [🤗 Transformers 
 implementation](https://huggingface.co/docs/transformers/model_doc/whisper). We benchmark the models on audio samples of 
-increasing length and report the average inference time over 10 repeat runs. OpenAI and Transformers both run in PyTorch 
+increasing length and report the average inference time in seconds over 10 repeat runs. OpenAI and Transformers both run in PyTorch 
 on GPU. Whisper JAX runs in JAX on TPU. OpenAI transcribes the audio sequentially in the order it is spoken. Both Transformers
 and Whisper JAX use a batching algorithm, where chunks of audio are batched together and transcribed in parallel 
 (see section [Batching](#batching)).
+
+**Table 1:** Average inference time in seconds for audio files of increasing length.
 
 |           | OpenAI  | Transformers | Whisper JAX |
 |-----------|---------|--------------|-------------|
