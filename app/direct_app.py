@@ -18,10 +18,7 @@ FILE_LIMIT_MB = 1000
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
-
-Note that using microphone or audio file requires the audio input to be transferred from the Gradio demo to the TPU, which for large audio files can be slow. We recommend using YouTube where possible, since this directly downloads the audio file to the TPU, skipping the file transfer step.
-"""
+description = "Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available."
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
 
@@ -32,22 +29,20 @@ if __name__ == "__main__":
     stride_length_s = CHUNK_LENGTH_S / 6
     chunk_len = round(CHUNK_LENGTH_S * pipeline.feature_extractor.sampling_rate)
     stride_left = stride_right = round(stride_length_s * pipeline.feature_extractor.sampling_rate)
+    step = chunk_len - stride_left - stride_right
 
     def tqdm_generate(inputs: dict, task: str, return_timestamps: bool, progress: gr.Progress):
         inputs_len = inputs["array"].shape[0]
-        step = chunk_len - stride_left - stride_right
-
         all_chunk_start_idx = np.arange(0, inputs_len, step)
         num_samples = len(all_chunk_start_idx)
         num_batches = math.ceil(num_samples / BATCH_SIZE)
-        gradio_batches = [_ for _ in range(num_batches)]
+        dummy_batches = [_ for _ in range(num_batches)]  # see
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
 
-        progress(0, desc="Starting transcription...")
         model_outputs = []
         # iterate over our chunked audio samples
-        for batch, _ in zip(dataloader, progress.tqdm(gradio_batches, desc="Transcribing...")):
+        for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
             model_outputs.append(
                 pipeline.forward(
                     batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps
@@ -60,6 +55,7 @@ if __name__ == "__main__":
 
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
+        progress(0, desc="Loading audio file...")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
             return f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.", None
@@ -98,6 +94,7 @@ if __name__ == "__main__":
         return inputs
 
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress()):
+        progress(0, desc="Loading audio file...")
         html_embed_str = _return_yt_html_embed(yt_url)
         inputs = download_youtube(yt_url)
         text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
