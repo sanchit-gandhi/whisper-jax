@@ -4,49 +4,18 @@ This repository contains optimised JAX code for OpenAI's [Whisper Model](https:/
 on the 🤗 Hugging Face Transformers Whisper implementation. Compared to OpenAI's PyTorch code, Whisper JAX runs over **70x** 
 faster, making it the fastest Whisper implementation available.
 
+The Whisper JAX model is running as a demo on the Hugging Face Hub:
+
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
+
 The JAX code is compatible on CPU, GPU and TPU. The following Google Colab demonstrates how Whisper JAX can be run in a 
 Google Colab using a TPU v2-8:
 
 ## Installation
 
 Whisper JAX was tested using Python 3.9 and JAX version 0.4.5. Installation assumes that you already have the latest 
-version of the JAX package installed on your device (#TODO include JAX instructions or not?)
+version of the JAX package installed on your device. You can do so using the official JAX installation guide: https://github.com/google/jax#installation
 
-
-### JAX
-First install JAX according to your device type (CPU/GPU/TPU) from the official JAX installation guide: https://github.com/google/jax#installation
-
-#### CPU
-```
-pip install --upgrade pip
-pip install --upgrade "jax[cpu]"
-```
-
-#### GPU
-JAX with NVIDIA GPU support can be installed with CUDA and CUDNN using pip wheels:
-```
-pip install --upgrade pip
-pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-```
-
-#### Cloud TPU
-JAX provides pre-built wheels for Google Cloud TPU:
-```
-pip install --upgrade pip
-pip install jax[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-```
-
-#### Colab TPU
-JAX comes pre-installed on a Colab TPU. Simply run the following code in a Python window to initialise JAX on the TPU:
-
-```python
-import jax.tools.colab_tpu
-jax.tools.colab_tpu.setup_tpu()
-```
-
-If you encounter difficulties installing the correct version of JAX, refer to the official JAX installation guide: https://github.com/google/jax#installation.
-
-### Whisper JAX
 Once the appropriate version of JAX has been installed, Whisper JAX can be installed through pip:
 ```
 pip install git+https://github.com/sanchit-gandhi/whisper-jax
