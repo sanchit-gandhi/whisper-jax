@@ -362,22 +362,22 @@ params = p_shard_params(freeze(params))
 We compare Whisper JAX to the official [OpenAI implementation](https://github.com/openai/whisper) and the [🤗 Transformers 
 implementation](https://huggingface.co/docs/transformers/model_doc/whisper). We benchmark the models on audio samples of 
 increasing length and report the average inference time in seconds over 10 repeat runs. OpenAI and Transformers both run in PyTorch 
-on GPU. Whisper JAX runs in JAX on TPU. OpenAI transcribes the audio sequentially in the order it is spoken. Both Transformers
+on GPU. Whisper JAX runs in JAX on GPU and TPU. OpenAI transcribes the audio sequentially in the order it is spoken. Both Transformers
 and Whisper JAX use a batching algorithm, where chunks of audio are batched together and transcribed in parallel 
 (see section [Batching](#batching)).
 
-**Table 1:** Average inference time in seconds for audio files of increasing length.
+**Table 1:** Average inference time in seconds for audio files of increasing length. GPU device is a single A100 40GB GPU. TPU device is a single TPU v4-8.
 
-|           | OpenAI  | Transformers | Whisper JAX |
-|-----------|---------|--------------|-------------|
-|           |         |              |             |
-| Framework | PyTorch | PyTorch      | JAX         |
-| Backend   | GPU     | GPU          | TPU         |
-|           |         |              |             |
-| 1 min     | 13.8    | 4.54         | 0.45        |
-| 10 min    | 108.3   | 20.2         | 2.01        |
-| 1 hour    | 1001.0  | 126.1        | 13.8        |
-|           |         |              |             |
+|           | OpenAI  | Transformers | Whisper JAX | Whisper JAX |
+|-----------|---------|--------------|-------------|-------------|
+|           |         |              |             |             |
+| Framework | PyTorch | PyTorch      | JAX         | JAX         |
+| Backend   | GPU     | GPU          | GPU         | TPU         |
+|           |         |              |             |             |
+| 1 min     | 13.8    | 4.54         | 1.72        | 0.45        |
+| 10 min    | 108.3   | 20.2         | 9.38        | 2.01        |
+| 1 hour    | 1001.0  | 126.1        | 75.3        | 13.8        |
+|           |         |              |             |             |
 
 ## Creating an Endpoint
 
