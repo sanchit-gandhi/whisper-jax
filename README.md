@@ -337,6 +337,8 @@ and Whisper JAX use a batching algorithm, where chunks of audio are batched toge
 
 **Table 1:** Average inference time in seconds for audio files of increasing length. GPU device is a single A100 40GB GPU. TPU device is a single TPU v4-8.
 
+<div align="center">
+
 |           | OpenAI  | Transformers | Whisper JAX | Whisper JAX |
 |-----------|---------|--------------|-------------|-------------|
 |           |         |              |             |             |
@@ -347,6 +349,8 @@ and Whisper JAX use a batching algorithm, where chunks of audio are batched toge
 | 10 min    | 108.3   | 20.2         | 9.38        | 2.01        |
 | 1 hour    | 1001.0  | 126.1        | 75.3        | 13.8        |
 |           |         |              |             |             |
+
+</div>
 
 ## Creating an Endpoint
 
