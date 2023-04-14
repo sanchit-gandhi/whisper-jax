@@ -31,7 +31,7 @@ pip install --upgrade --no-deps --force-reinstall git+https://github.com/sanchit
 The recommended way of running Whisper JAX is through the [`FlaxWhisperPipline`](https://github.com/sanchit-gandhi/whisper-jax/blob/main/whisper_jax/pipeline.py#L57) abstraction class. This class handles all
 the necessary pre- and post-processing, as well as wrapping the generate method for data parallelism across accelerator devices.
 
-Whisper JAX makes use of JAX's `pmap` function for data parallelism across GPU/TPU devices. This function is _Just In Time (JIT)_ 
+Whisper JAX makes use of JAX's [`pmap`](https://jax.readthedocs.io/en/latest/_autosummary/jax.pmap.html) function for data parallelism across GPU/TPU devices. This function is _Just In Time (JIT)_ 
 compiled the first time it is called. Thereafter, the function will be _cached_, enabling it to be run in super-fast time:
 
 ```python
