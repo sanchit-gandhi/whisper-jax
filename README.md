@@ -18,12 +18,12 @@ version of the JAX package installed on your device. You can do so using the off
 
 Once the appropriate version of JAX has been installed, Whisper JAX can be installed through pip:
 ```
-pip install git+https://github.com/sanchit-gandhi/whisper-jax
+pip install git+https://github.com/sanchit-gandhi/whisper-jax.git
 ```
 
 To update the Whisper JAX package to the latest version, simply run:
 ```
-pip install --upgrade --no-deps --force-reinstall git+https://github.com/sanchit-gandhi/whisper-jax
+pip install --upgrade --no-deps --force-reinstall git+https://github.com/sanchit-gandhi/whisper-jax.git
 ```
 
 ## Pipeline Usage
