@@ -1,5 +1,6 @@
 import math
 import os
+import time
 from multiprocessing import Pool
 
 import gradio as gr
@@ -17,14 +18,14 @@ cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
 BATCH_SIZE = 16
 CHUNK_LENGTH_S = 30
-NUM_PROC = 32
+NUM_PROC = 8
 FILE_LIMIT_MB = 1000
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
 description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
 
-Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. For details on creating your own inference endpoint, refer to the [instructions](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint) on the Whisper JAX repository.
+Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. To skip the queue, you may wish to create your own inference endpoint, details for which can be found in the [Whisper JAX repository](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint).
 """
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
@@ -34,6 +35,23 @@ language_names = sorted(TO_LANGUAGE_CODE.keys())
 
 def identity(batch):
     return batch
+
+
+# Copied from https://github.com/openai/whisper/blob/c09a7ae299c4c34c5839a76380ae407e7d785914/whisper/utils.py#L50
+def format_timestamp(seconds: float, always_include_hours: bool = False, decimal_marker: str = "."):
+    milliseconds = round(seconds * 1000.0)
+
+    hours = milliseconds // 3_600_000
+    milliseconds -= hours * 3_600_000
+
+    minutes = milliseconds // 60_000
+    milliseconds -= minutes * 60_000
+
+    seconds = milliseconds // 1_000
+    milliseconds -= seconds * 1_000
+
+    hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
+    return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
 
 
 if __name__ == "__main__":
@@ -55,34 +73,44 @@ if __name__ == "__main__":
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
         progress(0, desc="Pre-processing audio file...")
-        dataloader = pool.map(
-            identity, dataloader
-        )  # TODO(SG): wrap this in a progress bar once Gradio progress bar bug is fixed
+        dataloader = pool.map(identity, dataloader)
 
         model_outputs = []
+        start_time = time.time()
         # iterate over our chunked audio samples
         for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
             model_outputs.append(
                 pipeline.forward(batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps)
             )
+        runtime = time.time() - start_time
 
         post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
         timestamps = post_processed.get("chunks")
-        return post_processed["text"], timestamps
+        if timestamps is not None:
+            timestamps = [
+                f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
+                for chunk in timestamps
+            ]
+            timestamps = "\n".join(str(feature) for feature in timestamps)
+        return post_processed["text"], timestamps, runtime
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
-            raise gr.Error(f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.")
+            raise gr.Error(
+                f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB."
+            )
 
         with open(inputs, "rb") as f:
             inputs = f.read()
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
-        return text, timestamps
+        text, timestamps, runtime = tqdm_generate(
+            inputs, task=task, return_timestamps=return_timestamps, progress=progress
+        )
+        return text, timestamps, runtime
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -95,8 +123,11 @@ if __name__ == "__main__":
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
         progress(0, desc="Loading audio file...")
         html_embed_str = _return_yt_html_embed(yt_url)
-        yt = pytube.YouTube(yt_url)
-        stream = yt.streams.filter(only_audio=True)[0]
+        try:
+            yt = pytube.YouTube(yt_url)
+            stream = yt.streams.filter(only_audio=True)[0]
+        except KeyError:
+            raise gr.Error(f"An error occurred while loading the YouTube video. Please try again.")
 
         if stream.filesize_mb > max_filesize:
             raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
@@ -108,8 +139,10 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, timestamps = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
-        return html_embed_str, text, timestamps
+        text, timestamps, runtime = tqdm_generate(
+            inputs, task=task, return_timestamps=return_timestamps, progress=progress
+        )
+        return html_embed_str, text, timestamps, runtime
 
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
@@ -119,8 +152,9 @@ if __name__ == "__main__":
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -136,8 +170,9 @@ if __name__ == "__main__":
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -154,8 +189,9 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.HTML(label="Video"),
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
