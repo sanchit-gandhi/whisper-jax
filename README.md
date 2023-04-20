@@ -4,15 +4,15 @@ This repository contains optimised JAX code for OpenAI's [Whisper Model](https:/
 on the 🤗 Hugging Face Transformers Whisper implementation. Compared to OpenAI's PyTorch code, Whisper JAX runs over **70x** 
 faster, making it the fastest Whisper implementation available.
 
-The Whisper JAX model is running as a demo on the Hugging Face Hub:
-
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
-
 The JAX code is compatible on CPU, GPU and TPU, and can be run standalone (see [Pipeline Usage](#pipeline-usage)) or 
 as an inference endpoint (see [Creating an Endpoint](#creating-an-endpoint)).
 
 For a quick-start, see the Kaggle notebook [Whisper JAX TPU](https://www.kaggle.com/code/sgandhi99/whisper-jax-tpu) for 
 running Whisper JAX on a Cloud TPU, where we transcribe 30 mins of audio in approx 30 sec.
+
+The Whisper JAX model is also running as a demo on the Hugging Face Hub:
+
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
 
 ## Installation
 
