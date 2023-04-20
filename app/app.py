@@ -1,10 +1,12 @@
 import base64
+import math
 import os
-from functools import partial
+import time
 from multiprocessing import Pool
 
 import gradio as gr
 import numpy as np
+import pytube
 import requests
 from processing_whisper import WhisperPrePostProcessor
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
@@ -70,6 +72,10 @@ def forward(batch, task=None, return_timestamps=False):
     return outputs
 
 
+def identity(batch):
+    return batch
+
+
 # Copied from https://github.com/openai/whisper/blob/c09a7ae299c4c34c5839a76380ae407e7d785914/whisper/utils.py#L50
 def format_timestamp(seconds: float, always_include_hours: bool = False, decimal_marker: str = "."):
     if seconds is not None:
@@ -93,29 +99,31 @@ def format_timestamp(seconds: float, always_include_hours: bool = False, decimal
 
 if __name__ == "__main__":
     processor = WhisperPrePostProcessor.from_pretrained("openai/whisper-large-v2")
+    stride_length_s = CHUNK_LENGTH_S / 6
+    chunk_len = round(CHUNK_LENGTH_S * processor.feature_extractor.sampling_rate)
+    stride_left = stride_right = round(stride_length_s * processor.feature_extractor.sampling_rate)
+    step = chunk_len - stride_left - stride_right
     pool = Pool(NUM_PROC)
 
-    def transcribe_chunked_audio(inputs, task, return_timestamps):
-        file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
-        if file_size_mb > FILE_LIMIT_MB:
-            return (
-                f"ERROR: File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB.",
-                None,
-            )
-
-        with open(inputs, "rb") as f:
-            inputs = f.read()
-
-        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
-        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
+    def tqdm_generate(inputs: dict, task: str, return_timestamps: bool, progress: gr.Progress):
+        inputs_len = inputs["array"].shape[0]
+        all_chunk_start_idx = np.arange(0, inputs_len, step)
+        num_samples = len(all_chunk_start_idx)
+        num_batches = math.ceil(num_samples / BATCH_SIZE)
+        dummy_batches = list(
+            range(num_batches)
+        )  # Gradio progress bar not compatible with generator, see https://github.com/gradio-app/gradio/issues/3841
 
         dataloader = processor.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
+        progress(0, desc="Pre-processing audio file...")
+        dataloader = pool.map(identity, dataloader)
 
-        try:
-            model_outputs = pool.map(partial(forward, task=task, return_timestamps=return_timestamps), dataloader)
-        except ValueError as err:
-            # pre-processor does all the necessary compatibility checks for our audio inputs
-            raise gr.Error(f"Error: {err}")
+        model_outputs = []
+        start_time = time.time()
+        # iterate over our chunked audio samples
+        for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
+            model_outputs.append(forward(batch, task=task, return_timestamps=return_timestamps))
+        runtime = time.time() - start_time
 
         post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
         text = post_processed["text"]
@@ -126,7 +134,23 @@ if __name__ == "__main__":
                 for chunk in timestamps
             ]
             text = "\n".join(str(feature) for feature in timestamps)
-        return text
+        return text, runtime
+
+    def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
+        progress(0, desc="Loading audio file...")
+        file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
+        if file_size_mb > FILE_LIMIT_MB:
+            raise gr.Error(
+                f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB."
+            )
+
+        with open(inputs, "rb") as f:
+            inputs = f.read()
+
+        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
+        text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
+        return text, runtime
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -136,12 +160,27 @@ if __name__ == "__main__":
         )
         return HTML_str
 
-    def transcribe_youtube(yt_url, task, return_timestamps):
+    def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
+        progress(0, desc="Loading audio file...")
         html_embed_str = _return_yt_html_embed(yt_url)
+        try:
+            yt = pytube.YouTube(yt_url)
+            stream = yt.streams.filter(only_audio=True)[0]
+        except KeyError:
+            raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
 
-        text = inference(inputs=yt_url, task=task, return_timestamps=return_timestamps)
+        if stream.filesize_mb > max_filesize:
+            raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
 
-        return html_embed_str, text
+        stream.download(filename="audio.mp3")
+
+        with open("audio.mp3", "rb") as f:
+            inputs = f.read()
+
+        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
+        text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
+        return html_embed_str, text, runtime
 
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
@@ -152,6 +191,7 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -168,6 +208,7 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -185,6 +226,7 @@ if __name__ == "__main__":
         outputs=[
             gr.outputs.HTML(label="Video"),
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
+            gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -200,4 +242,4 @@ if __name__ == "__main__":
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
     demo.queue(concurrency_count=3, max_size=5)
-    demo.launch(show_api=False)
+    demo.launch(show_api=False, max_threads=10)

@@ -114,9 +114,7 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, runtime = tqdm_generate(
-            inputs, task=task, return_timestamps=return_timestamps, progress=progress
-        )
+        text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return text, runtime
 
     def _return_yt_html_embed(yt_url):
@@ -134,7 +132,7 @@ if __name__ == "__main__":
             yt = pytube.YouTube(yt_url)
             stream = yt.streams.filter(only_audio=True)[0]
         except KeyError:
-            raise gr.Error(f"An error occurred while loading the YouTube video. Please try again.")
+            raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
 
         if stream.filesize_mb > max_filesize:
             raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
@@ -146,9 +144,7 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, runtime = tqdm_generate(
-            inputs, task=task, return_timestamps=return_timestamps, progress=progress
-        )
+        text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return html_embed_str, text, runtime
 
     microphone_chunked = gr.Interface(
