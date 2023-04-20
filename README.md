@@ -7,7 +7,7 @@ faster, making it the fastest Whisper implementation available.
 The JAX code is compatible on CPU, GPU and TPU, and can be run standalone (see [Pipeline Usage](#pipeline-usage)) or 
 as an inference endpoint (see [Creating an Endpoint](#creating-an-endpoint)).
 
-For a quick-start running Whisper JAX on a Cloud TPU, refer to the following Kaggle notebook, where we transcribe 30 mins of audio in approx 30 sec:
+For a quick-start guide to running Whisper JAX on a Cloud TPU, refer to the following Kaggle notebook, where we transcribe 30 mins of audio in approx 30 sec:
 
 [![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/code/sgandhi99/whisper-jax-tpu)
 
@@ -374,7 +374,9 @@ The Whisper JAX model is running as a demo on the Hugging Face Hub:
 However, at peak times there may be a queue of users that limit how quickly your audio input is transcribed. In this case,
 you may benefit from running the model yourself, such that you have unrestricted access to the Whisper JAX model.
 
-If you are just interested in running the model in a standalone Python script, refer to the Kaggle notebook [Whisper JAX TPU](https://www.kaggle.com/code/sgandhi99/whisper-jax-tpu).
+If you are just interested in running the model in a standalone Python script, refer to the Kaggle notebook Whisper JAX TPU:
+
+[![Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://www.kaggle.com/code/sgandhi99/whisper-jax-tpu)
 
 Otherwise, we provide all the necessary code for creating an inference endpoint. To obtain this code, first clone the 
 repository on the GPU/TPU on which you want to host the endpoint:
