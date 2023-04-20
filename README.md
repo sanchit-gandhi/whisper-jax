@@ -461,8 +461,8 @@ This will launch a Gradio demo with the same interface as the official Whisper J
 
 ## Acknowledgements
 
-* 🤗 HuggingFace Transformers for the base Whisper implementation, particularly to @andyehrenberg for the [Flax Whisper PR](https://github.com/huggingface/transformers/pull/20479) and @ArthurZucker for the batching algorithm 
-* Gradio for their easy-to-use package for building ML demos, and @pcuenca for the help in hooking the demo up to the TPU 
+* 🤗 HuggingFace Transformers for the base Whisper implementation, particularly to [andyehrenberg](https://github.com/andyehrenberg) for the [Flax Whisper PR](https://github.com/huggingface/transformers/pull/20479) and [ArthurZucker](https://github.com/ArthurZucker) for the batching algorithm 
+* Gradio for their easy-to-use package for building ML demos, and [pcuenca](https://github.com/pcuenca) for the help in hooking the demo up to the TPU 
 * Google's [TPU Research Cloud (TRC)](https://sites.research.google/trc/about/) programme for Cloud TPUs
 
 [^1]: See WER results from Colab: https://colab.research.google.com/drive/1rS1L4YSJqKUH_3YxIQHBI982zso23wor?usp=sharing
