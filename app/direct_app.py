@@ -103,6 +103,8 @@ if __name__ == "__main__":
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
+        if inputs is None:
+            raise gr.Error("No audio file submitted! Please upload an audio file before submitting your request.")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
             raise gr.Error(

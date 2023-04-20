@@ -17,14 +17,15 @@ title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
 description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
 
-Note that using microphone or audio file requires the audio input to be transferred from the Gradio demo to the TPU, which for large audio files can be slow. We recommend using YouTube where possible, since this directly downloads the audio file to the TPU, skipping the file transfer step.
-"""
+Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. 
 
-API_URL = os.getenv("API_URL")
-API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
+To skip the queue, you may wish to create your own inference endpoint, details for which can be found in the [Whisper JAX repository](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint).
+"""
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
 
+API_URL = os.getenv("API_URL")
+API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 CHUNK_LENGTH_S = 30
 BATCH_SIZE = 16
@@ -138,6 +139,8 @@ if __name__ == "__main__":
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
+        if inputs is None:
+            raise gr.Error("No audio file submitted! Please upload an audio file before submitting your request.")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
             raise gr.Error(
