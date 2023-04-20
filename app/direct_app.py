@@ -20,6 +20,7 @@ BATCH_SIZE = 16
 CHUNK_LENGTH_S = 30
 NUM_PROC = 8
 FILE_LIMIT_MB = 1000
+YT_ATTEMPT_LIMIT = 3
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -130,11 +131,15 @@ if __name__ == "__main__":
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
         progress(0, desc="Loading audio file...")
         html_embed_str = _return_yt_html_embed(yt_url)
-        try:
-            yt = pytube.YouTube(yt_url)
-            stream = yt.streams.filter(only_audio=True)[0]
-        except KeyError:
-            raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
+
+        for attempt in range(YT_ATTEMPT_LIMIT):
+            try:
+                yt = pytube.YouTube(yt_url)
+                stream = yt.streams.filter(only_audio=True)[0]
+                break
+            except KeyError:
+                if attempt + 1 == YT_ATTEMPT_LIMIT:
+                    raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
 
         if stream.filesize_mb > max_filesize:
             raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
@@ -209,4 +214,4 @@ if __name__ == "__main__":
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
     demo.queue(concurrency_count=3, max_size=5)
-    demo.launch(show_api=False)
+    demo.launch(server_name="0.0.0.0", show_api=False)
