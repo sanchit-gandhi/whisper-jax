@@ -8,8 +8,8 @@ The Whisper JAX model is running as a demo on the Hugging Face Hub:
 
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
 
-The JAX code is compatible on CPU, GPU and TPU. The following Google Colab demonstrates how Whisper JAX can be run in a 
-Google Colab using a TPU v2-8:
+The JAX code is compatible on CPU, GPU and TPU, and can be run standalone (see [Pipeline Usage](#pipeline-usage)) or 
+as an inference endpoint (see [Creating an Endpoint](#creating-an-endpoint)).
 
 ## Installation
 
@@ -38,7 +38,7 @@ compiled the first time it is called. Thereafter, the function will be _cached_,
 from whisper_jax import FlaxWhisperPipline
 
 # instantiate pipeline
-pipeline = FlaxWhisperPipline("openai/whisper-tiny")
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2")
 
 # JIT compile the forward call - slow, but we only do once
 text = pipeline("audio.mp3")
@@ -59,7 +59,7 @@ from whisper_jax import FlaxWhisperPipline
 import jax.numpy as jnp
 
 # instantiate pipeline in bfloat16
-pipeline = FlaxWhisperPipline("openai/whisper-tiny", dtype=jnp.bfloat16)
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2", dtype=jnp.bfloat16)
 ```
 
 ### Batching
@@ -74,7 +74,7 @@ To enable batching, pass the `batch_size` parameter when you instantiate the pip
 from whisper_jax import FlaxWhisperPipline
 
 # instantiate pipeline with batching
-pipeline = FlaxWhisperPipline("openai/whisper-tiny", batch_size=8)
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2", batch_size=16)
 ```
 
 ### Task
@@ -108,7 +108,7 @@ from whisper_jax import FlaxWhisperPipline
 import jax.numpy as jnp
 
 # instantiate pipeline with bfloat16 and enable batching
-pipeline = FlaxWhisperPipline("openai/whisper-tiny", dtype=jnp.bfloat16, batch_size=8)
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2", dtype=jnp.bfloat16, batch_size=16)
 
 # transcribe and return timestamps
 outputs = pipeline("audio.mp3",  task="transcribe", return_timestamps=True)
@@ -131,9 +131,9 @@ from transformers import WhisperProcessor
 from whisper_jax import FlaxWhisperForConditionalGeneration
 
 # load the processor and model
-processor = WhisperProcessor.from_pretrained("openai/whisper-tiny")
+processor = WhisperProcessor.from_pretrained("openai/whisper-large-v2")
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-tiny", dtype=jnp.bfloat16, _do_init=False,
+    "openai/whisper-large-v2", dtype=jnp.bfloat16, _do_init=False,
 )
 
 def generate_fn(input_features):
@@ -225,7 +225,7 @@ logical_axis_rules_dp = (
     ("channels", None),
 )
 
-pipeline = FlaxWhisperPipline("openai/whisper-tiny", dtype=jnp.bfloat16, batch_size=8)
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2", dtype=jnp.bfloat16, batch_size=16)
 pipeline.shard_params(num_mp_partitions=1, logical_axis_rules=logical_axis_rules_dp)
 ```
 
@@ -257,7 +257,7 @@ logical_axis_rules_dp = [
 ]
 
 model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
-    "openai/whisper-tiny",
+    "openai/whisper-large-v2",
     _do_init=False,
     dtype=jnp.bfloat16,
 )
@@ -324,18 +324,26 @@ p_generate = partitioner.partition(
 
 # This will auto-magically run in mesh context
 params = p_shard_params(freeze(params))
+
+# you can now run the forward pass with: 
+# pred_ids = p_generate(input_features)
 ```
 
 ## Benchmarks
 
 We compare Whisper JAX to the official [OpenAI implementation](https://github.com/openai/whisper) and the [🤗 Transformers 
 implementation](https://huggingface.co/docs/transformers/model_doc/whisper). We benchmark the models on audio samples of 
-increasing length and report the average inference time in seconds over 10 repeat runs. OpenAI and Transformers both run in PyTorch 
-on GPU. Whisper JAX runs in JAX on GPU and TPU. OpenAI transcribes the audio sequentially in the order it is spoken. Both Transformers
-and Whisper JAX use a batching algorithm, where chunks of audio are batched together and transcribed in parallel 
-(see section [Batching](#batching)).
+increasing length and report the average inference time in seconds over 10 repeat runs. For all three systems, we pass a 
+pre-loaded audio file to the model and measure the time for the forward pass. Leaving the task of loading the audio file 
+to the systems adds an equal offset to all the benchmark times, so the actual time for loading **and** transcribing an 
+audio file will be higher than the reported numbers.
 
-**Table 1:** Average inference time in seconds for audio files of increasing length. GPU device is a single A100 40GB GPU. TPU device is a single TPU v4-8.
+OpenAI and Transformers both run in PyTorch on GPU. Whisper JAX runs in JAX on GPU and TPU. OpenAI transcribes the audio 
+sequentially in the order it is spoken. Both Transformers and Whisper JAX use a batching algorithm, where chunks of audio 
+are batched together and transcribed in parallel (see section [Batching](#batching)).
+
+**Table 1:** Average inference time in seconds for audio files of increasing length. GPU device is a single A100 40GB GPU. 
+TPU device is a single TPU v4-8.
 
 <div align="center">
 
@@ -359,9 +367,10 @@ The Whisper JAX model is running as a demo on the Hugging Face Hub:
 [![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/sanchit-gandhi/whisper-jax)
 
 However, at peak times there may be a queue of users that limit how quickly your audio input is transcribed. In this case,
-you may benefit from creating your own inference endpoint, such that you have unrestricted access to the Whisper JAX model.
+you may benefit from running the model yourself, such that you have unrestricted access to the Whisper JAX model.
 
-We provide all the necessary code for creating an inference endpoint. To obtain this code, first clone the repository on the GPU/TPU on which you want to host the endpoint:
+We provide all the necessary code for creating an inference endpoint. To obtain this code, first clone the 
+repository on the GPU/TPU on which you want to host the endpoint:
 ```
 git clone https://github.com/sanchit-gandhi/whisper-jax
 ```
@@ -371,6 +380,9 @@ And then install Whisper JAX from source, with the required additional endpoint 
 cd whisper-jax
 pip install -e .["endpoint"]
 ```
+
+We recommend that you set-up an endpoint in the same zone/region as the one you are based in. This reduces the communication 
+time between your local machine and the remote one, which can significantly reduce the overall request time.
 
 The Python script [`fastapi_app.py`](app/fastapi_app.py) contains the code to launch a FastAPI app with the Whisper large-v2 model.
 By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your 
@@ -424,6 +436,11 @@ def transcribe_audio(audio_file, task="transcribe", return_timestamps=False):
 # transcribe an audio file using our endpoint
 output = transcribe_audio("audio.mp3")
 ```
+
+Note that this code snippet sends a base64 byte encoding of the audio file to the remote machine over [`requests`](https://requests.readthedocs.io). 
+In some cases, transferring the audio request from the local machine to the remote can take longer than actually 
+transcribing it. Therefore, you may wish to explore more efficient methods of sending requests, such as parallel 
+requests/transcription (see function `transcribe_chunked_audio` in [app.py](app/app.py).)
 
 Finally, we can create a Gradio demo for the frontend, the code for which resides in [`app.py`](app/app.py). You can launch this 
 application by providing the ngrok subdomain:

@@ -45,9 +45,14 @@ def inference(inputs, task=None, return_timestamps=False):
     else:
         text = data["detail"]
 
-    timestamps = data.get("chunks", None)
-
-    return text, timestamps
+    timestamps = data.get("chunks")
+    if timestamps is not None:
+        timestamps = [
+            f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
+            for chunk in timestamps
+        ]
+        text = "\n".join(str(feature) for feature in timestamps)
+    return text
 
 
 def chunked_query(payload):
@@ -63,6 +68,27 @@ def forward(batch, task=None, return_timestamps=False):
     )
     outputs["tokens"] = np.asarray(outputs["tokens"])
     return outputs
+
+
+# Copied from https://github.com/openai/whisper/blob/c09a7ae299c4c34c5839a76380ae407e7d785914/whisper/utils.py#L50
+def format_timestamp(seconds: float, always_include_hours: bool = False, decimal_marker: str = "."):
+    if seconds is not None:
+        milliseconds = round(seconds * 1000.0)
+
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
+
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
+
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
+
+        hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
+        return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+    else:
+        # we have a malformed timestamp so just return it as is
+        return seconds
 
 
 if __name__ == "__main__":
@@ -89,11 +115,18 @@ if __name__ == "__main__":
             model_outputs = pool.map(partial(forward, task=task, return_timestamps=return_timestamps), dataloader)
         except ValueError as err:
             # pre-processor does all the necessary compatibility checks for our audio inputs
-            return err, None
+            raise gr.Error(f"Error: {err}")
 
         post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
+        text = post_processed["text"]
         timestamps = post_processed.get("chunks")
-        return post_processed["text"], timestamps
+        if timestamps is not None:
+            timestamps = [
+                f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
+                for chunk in timestamps
+            ]
+            text = "\n".join(str(feature) for feature in timestamps)
+        return text
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -106,9 +139,9 @@ if __name__ == "__main__":
     def transcribe_youtube(yt_url, task, return_timestamps):
         html_embed_str = _return_yt_html_embed(yt_url)
 
-        text, timestamps = inference(inputs=yt_url, task=task, return_timestamps=return_timestamps)
+        text = inference(inputs=yt_url, task=task, return_timestamps=return_timestamps)
 
-        return html_embed_str, text, timestamps
+        return html_embed_str, text
 
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
@@ -118,8 +151,7 @@ if __name__ == "__main__":
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
         ],
         allow_flagging="never",
         title=title,
@@ -135,8 +167,7 @@ if __name__ == "__main__":
             gr.inputs.Checkbox(default=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
         ],
         allow_flagging="never",
         title=title,
@@ -153,8 +184,7 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.HTML(label="Video"),
-            gr.outputs.Textbox(label="Transcription"),
-            gr.outputs.Textbox(label="Timestamps"),
+            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
         ],
         allow_flagging="never",
         title=title,
@@ -169,5 +199,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
-    demo.queue(max_size=3)
+    demo.queue(concurrency_count=3, max_size=5)
     demo.launch(show_api=False)

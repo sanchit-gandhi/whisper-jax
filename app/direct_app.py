@@ -25,7 +25,9 @@ title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
 description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
 
-Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. To skip the queue, you may wish to create your own inference endpoint, details for which can be found in the [Whisper JAX repository](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint).
+Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar. 
+
+To skip the queue, you may wish to create your own inference endpoint, details for which can be found in the [Whisper JAX repository](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint).
 """
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
@@ -39,19 +41,23 @@ def identity(batch):
 
 # Copied from https://github.com/openai/whisper/blob/c09a7ae299c4c34c5839a76380ae407e7d785914/whisper/utils.py#L50
 def format_timestamp(seconds: float, always_include_hours: bool = False, decimal_marker: str = "."):
-    milliseconds = round(seconds * 1000.0)
+    if seconds is not None:
+        milliseconds = round(seconds * 1000.0)
 
-    hours = milliseconds // 3_600_000
-    milliseconds -= hours * 3_600_000
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
 
-    minutes = milliseconds // 60_000
-    milliseconds -= minutes * 60_000
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
 
-    seconds = milliseconds // 1_000
-    milliseconds -= seconds * 1_000
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
 
-    hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
-    return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+        hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
+        return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+    else:
+        # we have a malformed timestamp so just return it as is
+        return seconds
 
 
 if __name__ == "__main__":
@@ -85,14 +91,15 @@ if __name__ == "__main__":
         runtime = time.time() - start_time
 
         post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
+        text = post_processed["text"]
         timestamps = post_processed.get("chunks")
         if timestamps is not None:
             timestamps = [
                 f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
                 for chunk in timestamps
             ]
-            timestamps = "\n".join(str(feature) for feature in timestamps)
-        return post_processed["text"], timestamps, runtime
+            text = "\n".join(str(feature) for feature in timestamps)
+        return text, runtime
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
@@ -107,10 +114,10 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, timestamps, runtime = tqdm_generate(
+        text, runtime = tqdm_generate(
             inputs, task=task, return_timestamps=return_timestamps, progress=progress
         )
-        return text, timestamps, runtime
+        return text, runtime
 
     def _return_yt_html_embed(yt_url):
         video_id = yt_url.split("?v=")[-1]
@@ -139,10 +146,10 @@ if __name__ == "__main__":
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
-        text, timestamps, runtime = tqdm_generate(
+        text, runtime = tqdm_generate(
             inputs, task=task, return_timestamps=return_timestamps, progress=progress
         )
-        return html_embed_str, text, timestamps, runtime
+        return html_embed_str, text, runtime
 
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
@@ -153,7 +160,6 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
             gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
@@ -171,7 +177,6 @@ if __name__ == "__main__":
         ],
         outputs=[
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
             gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
@@ -190,7 +195,6 @@ if __name__ == "__main__":
         outputs=[
             gr.outputs.HTML(label="Video"),
             gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Timestamps").style(show_copy_button=True),
             gr.outputs.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
