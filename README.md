@@ -188,7 +188,8 @@ the next time they are required. Note that converting weights from PyTorch to Fl
 
 For example, to convert the fine-tuned checkpoint [`sanchit-gandhi/whisper-small-hi`](https://huggingface.co/sanchit-gandhi/whisper-small-hi) from the blog post [Fine-Tuning Whisper](https://huggingface.co/blog/fine-tune-whisper):
 ```python
-from whisper_jax import FlaxWhisperForConditionalGeneration
+from whisper_jax import FlaxWhisperForConditionalGeneration, FlaxWhisperPipline
+import jax.numpy as jnp
 
 checkpoint_id = "sanchit-gandhi/whisper-small-hi"
 # convert PyTorch weights to Flax
@@ -197,7 +198,7 @@ model = FlaxWhisperForConditionalGeneration.from_pretrained(checkpoint_id, from_
 model.push_to_hub(checkpoint_id)
 
 # now we can load the Flax weights directly as required
-model, params = FlaxWhisperForConditionalGeneration.from_pretrained(checkpoint_id, _do_init=False)
+pipeline = FlaxWhisperPipline(checkpoint_id, dtype=jnp.bfloat16, batch_size=16)
 ```
 
 ## Advanced Usage
