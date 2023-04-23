@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import time
@@ -35,6 +36,13 @@ article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 t
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 
+logger = logging.getLogger("whisper-jax-app")
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s;%(levelname)s;%(message)s", "%Y-%m-%d %H:%M:%S")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 def identity(batch):
     return batch
@@ -80,6 +88,7 @@ if __name__ == "__main__":
 
         dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
         progress(0, desc="Pre-processing audio file...")
+        logger.info("Pre-processing audio file...")
         dataloader = pool.map(identity, dataloader)
 
         model_outputs = []
@@ -100,14 +109,18 @@ if __name__ == "__main__":
                 for chunk in timestamps
             ]
             text = "\n".join(str(feature) for feature in timestamps)
+        logger.info("done pre-processing")
         return text, runtime
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
+        logger.info("Loading audio file...")
         if inputs is None:
+            logger.warning("No audio file")
             raise gr.Error("No audio file submitted! Please upload an audio file before submitting your request.")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
+            logger.warning("Max file size exceeded")
             raise gr.Error(
                 f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB."
             )
@@ -118,6 +131,7 @@ if __name__ == "__main__":
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
         text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
+        logger.info("done loading")
         return text, runtime
 
     def _return_yt_html_embed(yt_url):
@@ -130,6 +144,7 @@ if __name__ == "__main__":
 
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
         progress(0, desc="Loading audio file...")
+        logger.info("Loading youtube file...")
         html_embed_str = _return_yt_html_embed(yt_url)
 
         for attempt in range(YT_ATTEMPT_LIMIT):
@@ -139,9 +154,11 @@ if __name__ == "__main__":
                 break
             except KeyError:
                 if attempt + 1 == YT_ATTEMPT_LIMIT:
+                    logger.warning("YouTube error")
                     raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
 
         if stream.filesize_mb > max_filesize:
+            logger.warning("Max YouTube size exceeded")
             raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
 
         stream.download(filename="audio.mp3")
@@ -152,6 +169,7 @@ if __name__ == "__main__":
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
         text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
+        logger.info("done youtube")
         return html_embed_str, text, runtime
 
     microphone_chunked = gr.Interface(
