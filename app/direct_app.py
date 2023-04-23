@@ -231,5 +231,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
-    demo.queue(concurrency_count=3, max_size=5)
+    demo.queue(concurrency_count=1, max_size=5)
     demo.launch(server_name="0.0.0.0", show_api=False)
