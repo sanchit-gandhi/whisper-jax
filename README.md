@@ -169,7 +169,7 @@ transcription = processor.batch_decode(pred_ids, skip_special_tokens=True)
 ```
 
 ## Available Models and Languages
-All Whisper models on the HuggingFace Hub with Flax weights are compatible with Whisper JAX. This includes, but is not limited to,
+All Whisper models on the Hugging Face Hub with Flax weights are compatible with Whisper JAX. This includes, but is not limited to,
 the official OpenAI Whisper checkpoints:
 
 | Size     | Parameters | English-only                                         | Multilingual                                        |
@@ -461,7 +461,7 @@ This will launch a Gradio demo with the same interface as the official Whisper J
 
 ## Acknowledgements
 
-* 🤗 HuggingFace Transformers for the base Whisper implementation, particularly to [andyehrenberg](https://github.com/andyehrenberg) for the [Flax Whisper PR](https://github.com/huggingface/transformers/pull/20479) and [ArthurZucker](https://github.com/ArthurZucker) for the batching algorithm 
+* 🤗 Hugging Face Transformers for the base Whisper implementation, particularly to [andyehrenberg](https://github.com/andyehrenberg) for the [Flax Whisper PR](https://github.com/huggingface/transformers/pull/20479) and [ArthurZucker](https://github.com/ArthurZucker) for the batching algorithm 
 * Gradio for their easy-to-use package for building ML demos, and [pcuenca](https://github.com/pcuenca) for the help in hooking the demo up to the TPU 
 * Google's [TPU Research Cloud (TRC)](https://sites.research.google/trc/about/) programme for Cloud TPUs
 
