@@ -278,6 +278,15 @@ class FlaxWhisperPipline:
             yield {"stride": strides, **processed}
 
     def preprocess_batch(self, inputs, chunk_length_s=30.0, stride_length_s=None, batch_size=None):
+        if isinstance(inputs, np.ndarray):
+            logger.warning(
+                "Numpy array passed as input - no sampling rate checks will be performed."
+                "It is strongly recommended to pass the input as a dictionary with an 'array' key "
+                "containing the numpy array representing the audio, and a 'sampling_rate' key "
+                "containing the sampling rate associated with the audio array."
+                "Failing to do so can result in silent errors that might be hard to debug."
+            )
+
         if isinstance(inputs, str):
             if inputs.startswith("http://") or inputs.startswith("https://"):
                 # We need to actually check for a real protocol, otherwise it's impossible to use a local file
