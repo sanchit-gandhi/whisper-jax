@@ -43,11 +43,11 @@ def inference(inputs, task=None, return_timestamps=False):
 
     data, status_code = query(payload)
 
-    if status_code == 200:
-        text = data["text"]
-    else:
-        text = data["detail"]
+    if status_code != 200:
+        # error with our request - return the details to the user
+        raise gr.Error(data["detail"])
 
+    text = data["detail"]
     timestamps = data.get("chunks")
     if timestamps is not None:
         timestamps = [
@@ -60,15 +60,18 @@ def inference(inputs, task=None, return_timestamps=False):
 
 def chunked_query(payload):
     response = requests.post(API_URL_FROM_FEATURES, json=payload)
-    return response.json()
+    return response.json(), response.status_code
 
 
 def forward(batch, task=None, return_timestamps=False):
     feature_shape = batch["input_features"].shape
     batch["input_features"] = base64.b64encode(batch["input_features"].tobytes()).decode()
-    outputs = chunked_query(
+    outputs, status_code = chunked_query(
         {"batch": batch, "task": task, "return_timestamps": return_timestamps, "feature_shape": feature_shape}
     )
+    if status_code != 200:
+        # error with our request - return the details to the user
+        raise gr.Error(outputs["detail"])
     outputs["tokens"] = np.asarray(outputs["tokens"])
     return outputs
 
