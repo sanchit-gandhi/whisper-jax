@@ -44,6 +44,7 @@ formatter = logging.Formatter("%(asctime)s;%(levelname)s;%(message)s", "%Y-%m-%d
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+
 def identity(batch):
     return batch
 
