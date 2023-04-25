@@ -15,6 +15,7 @@
 
 
 import math
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -23,6 +24,12 @@ import requests
 from flax import jax_utils
 from flax.core.frozen_dict import freeze
 from flax.training.common_utils import shard
+from gptcache import Cache
+from gptcache.adapter.api import get, put
+from gptcache.embedding import Data2VecAudio
+from gptcache.manager import manager_factory
+from gptcache.processor.pre import get_prompt
+from gptcache.similarity_evaluation import SearchDistanceEvaluation
 from jax.sharding import PartitionSpec as P
 from transformers import WhisperProcessor
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
@@ -61,6 +68,8 @@ class FlaxWhisperPipline:
         dtype=jnp.float32,
         batch_size=None,
         max_length=None,
+        enable_cache=False,
+        cache_init_func=None,
     ):
         """
         Args
@@ -77,6 +86,10 @@ class FlaxWhisperPipline:
                 a batch size in the `__init__` method will be superseded by any batch size passed to the `__call__` method.
             max_length (`int`, *optional*):
                 The maximum numbers of tokens to generate. Defaults to `model.config.max_length`.
+            enable_cache (`bool`, *optional*):
+                Whether to use cache. Defaults to `false`.
+            cache_init_func (`Callable[[gptcache.Cache, str], None]`, *optional*):
+                Custom initialization cache. Defaults to `None`.
         """
         self.checkpoint = checkpoint
         self.dtype = dtype
@@ -113,6 +126,31 @@ class FlaxWhisperPipline:
             generate, "input_features", in_axes=(0, 0, None), out_axes=0, static_broadcasted_argnums=(3,)
         )
         self.is_sharded = False
+        self.enable_cache = enable_cache
+
+        def init_cache(cache_obj, cache_type):
+            if cache_init_func:
+                cache_init_func(cache_obj, cache_type)
+            else:
+                data2vec = Data2VecAudio()
+                cache_dir = f"whisper-jax-cache/{cache_type}"
+                Path(cache_dir).mkdir(parents=True, exist_ok=True)
+                data_manager = manager_factory("sqlite,faiss", cache_dir, vector_params={"dimension": data2vec.dimension})
+                evaluation = SearchDistanceEvaluation()
+                cache_obj.init(
+                    pre_embedding_func=get_prompt,
+                    embedding_func=data2vec.to_embeddings,
+                    data_manager=data_manager,
+                    similarity_evaluation=evaluation,
+                )
+
+        if self.enable_cache:
+            self.caches = {
+                "translate": Cache(),
+                "transcribe": Cache(),
+            }
+            for key, cache in self.caches.items():
+                init_cache(cache, key)
 
     def shard_params(self, num_mp_partitions=1, logical_axis_rules=logical_axis_rules_dp):
         def init_fn():
@@ -430,6 +468,7 @@ class FlaxWhisperPipline:
         task=None,
         return_timestamps=None,
         generate_kwargs=None,
+        cache_skip=False,
     ):
         """
         Transcribe an audio input sequence to a text transcription, optionally with timestamps.
@@ -476,6 +515,8 @@ class FlaxWhisperPipline:
                 Whether to return timestamps in the prediction. Defaults to False. If set to true, the pipeline
                 will return two keys in the output dictionary: `"text"` containing the text transcription, and `"chunks"`
                 containing the transcription segments chunked by their utterance-level timestamps.
+            cache_skip (`bool`, *optional*):
+                Whether to skip the cache search, but keep the latest results in the cache. Defaults to `"False"`.
 
         Return:
             `Dict`: A dictionary with the following keys:
@@ -492,6 +533,11 @@ class FlaxWhisperPipline:
                 f"Batch size must be a multiple of the number of JAX devices, but got batch size {batch_size} and num devices {self.min_batch_size}."
             )
 
+        cache_obj = self.caches.get(task)
+        if cache_obj and isinstance(inputs, str) and self.enable_cache and not cache_skip:
+            cache_output = get(inputs, cache_obj=cache_obj)
+            if cache_output:
+                return {"text": cache_output, "is_cache": True}
         dataloader = self.preprocess_batch(
             inputs, chunk_length_s=chunk_length_s, stride_length_s=stride_length_s, batch_size=batch_size
         )
@@ -504,4 +550,7 @@ class FlaxWhisperPipline:
                 )
             )
         post_processed = self.postprocess(model_outputs, return_timestamps=return_timestamps)
+        if cache_obj and isinstance(inputs, str) and self.enable_cache:
+            put(inputs, post_processed.get("text"), cache_obj=cache_obj)
+            cache_obj.flush()
         return post_processed

@@ -118,6 +118,27 @@ pipeline = FlaxWhisperPipline("openai/whisper-large-v2", dtype=jnp.bfloat16, bat
 outputs = pipeline("audio.mp3",  task="transcribe", return_timestamps=True)
 ```
 
+### Cache
+Whisper JAX use the [GPTCache](https://github.com/zilliztech/GPTCache) to implement the cache function.
+By default, the cache is turned off and you can add the `enable_cache` to enable it.
+When you enable the cache function, the similar video get the result quickly.
+If you are not satisfied with the cache result, you can add the `cache_skip` parameter to make a call
+
+```python
+from whisper_jax import FlaxWhisperPipline
+
+# instantiate pipeline with batching
+pipeline = FlaxWhisperPipline("openai/whisper-large-v2", enable_cache=True)
+
+output = pipeline("audio.mp3")
+
+# audio.mp3 and similar_audio.mp3 are similar
+output = pipeline("similar_audio.mp3")
+
+# skip the cache
+output = pipeline("similar_audio.mp3", cache_skip=True)
+```
+
 ## Model Usage
 
 The Whisper JAX model can use on a more granular level in much the same way as the original Hugging Face 
