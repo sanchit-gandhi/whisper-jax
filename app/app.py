@@ -1,17 +1,27 @@
-import base64
+import logging
 import math
 import os
 import time
 from multiprocessing import Pool
 
 import gradio as gr
+import jax.numpy as jnp
 import numpy as np
 import pytube
-import requests
-from processing_whisper import WhisperPrePostProcessor
+from jax.experimental.compilation_cache import compilation_cache as cc
 from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
 from transformers.pipelines.audio_utils import ffmpeg_read
 
+from whisper_jax import FlaxWhisperPipline
+
+
+cc.initialize_cache("./jax_cache")
+checkpoint = "openai/whisper-large-v2"
+BATCH_SIZE = 16
+CHUNK_LENGTH_S = 30
+NUM_PROC = 8
+FILE_LIMIT_MB = 1000
+YT_ATTEMPT_LIMIT = 3
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -24,56 +34,15 @@ To skip the queue, you may wish to create your own inference endpoint, details f
 
 article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
 
-API_URL = os.getenv("API_URL")
-API_URL_FROM_FEATURES = os.getenv("API_URL_FROM_FEATURES")
 language_names = sorted(TO_LANGUAGE_CODE.keys())
-CHUNK_LENGTH_S = 30
-BATCH_SIZE = 16
-NUM_PROC = 16
-FILE_LIMIT_MB = 1000
 
-
-def query(payload):
-    response = requests.post(API_URL, json=payload)
-    return response.json(), response.status_code
-
-
-def inference(inputs, task=None, return_timestamps=False):
-    payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
-
-    data, status_code = query(payload)
-
-    if status_code != 200:
-        # error with our request - return the details to the user
-        raise gr.Error(data["detail"])
-
-    text = data["detail"]
-    timestamps = data.get("chunks")
-    if timestamps is not None:
-        timestamps = [
-            f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
-            for chunk in timestamps
-        ]
-        text = "\n".join(str(feature) for feature in timestamps)
-    return text
-
-
-def chunked_query(payload):
-    response = requests.post(API_URL_FROM_FEATURES, json=payload)
-    return response.json(), response.status_code
-
-
-def forward(batch, task=None, return_timestamps=False):
-    feature_shape = batch["input_features"].shape
-    batch["input_features"] = base64.b64encode(batch["input_features"].tobytes()).decode()
-    outputs, status_code = chunked_query(
-        {"batch": batch, "task": task, "return_timestamps": return_timestamps, "feature_shape": feature_shape}
-    )
-    if status_code != 200:
-        # error with our request - return the details to the user
-        raise gr.Error(outputs["detail"])
-    outputs["tokens"] = np.asarray(outputs["tokens"])
-    return outputs
+logger = logging.getLogger("whisper-jax-app")
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s;%(levelname)s;%(message)s", "%Y-%m-%d %H:%M:%S")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 
 def identity(batch):
@@ -102,12 +71,19 @@ def format_timestamp(seconds: float, always_include_hours: bool = False, decimal
 
 
 if __name__ == "__main__":
-    processor = WhisperPrePostProcessor.from_pretrained("openai/whisper-large-v2")
+    pipeline = FlaxWhisperPipline(checkpoint, dtype=jnp.bfloat16, batch_size=BATCH_SIZE)
     stride_length_s = CHUNK_LENGTH_S / 6
-    chunk_len = round(CHUNK_LENGTH_S * processor.feature_extractor.sampling_rate)
-    stride_left = stride_right = round(stride_length_s * processor.feature_extractor.sampling_rate)
+    chunk_len = round(CHUNK_LENGTH_S * pipeline.feature_extractor.sampling_rate)
+    stride_left = stride_right = round(stride_length_s * pipeline.feature_extractor.sampling_rate)
     step = chunk_len - stride_left - stride_right
     pool = Pool(NUM_PROC)
+
+    # do a pre-compile step so that the first user to use the demo isn't hit with one
+    logger.info("compiling forward call...")
+    random_inputs = {"input_features": np.ones((BATCH_SIZE, 80, 3000))}
+    random_outputs = pipeline.forward(random_inputs, batch_size=BATCH_SIZE, return_timestamps=False)
+    random_timestamps = pipeline.forward(random_inputs, batch_size=BATCH_SIZE, return_timestamps=True)
+    logger.info("compiled")
 
     def tqdm_generate(inputs: dict, task: str, return_timestamps: bool, progress: gr.Progress):
         inputs_len = inputs["array"].shape[0]
@@ -118,34 +94,43 @@ if __name__ == "__main__":
             range(num_batches)
         )  # Gradio progress bar not compatible with generator, see https://github.com/gradio-app/gradio/issues/3841
 
-        dataloader = processor.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
+        dataloader = pipeline.preprocess_batch(inputs, chunk_length_s=CHUNK_LENGTH_S, batch_size=BATCH_SIZE)
         progress(0, desc="Pre-processing audio file...")
+        logger.info("pre-processing audio file...")
         dataloader = pool.map(identity, dataloader)
+        logger.info("done post-processing")
 
         model_outputs = []
         start_time = time.time()
-        # iterate over our chunked audio samples
+        logger.info("transcribing...")
+        # iterate over our chunked audio samples - always predict timestamps to reduce hallucinations
         for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
-            model_outputs.append(forward(batch, task=task, return_timestamps=return_timestamps))
+            model_outputs.append(pipeline.forward(batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps))
         runtime = time.time() - start_time
+        logger.info("done transcription")
 
-        post_processed = processor.postprocess(model_outputs, return_timestamps=return_timestamps)
+        logger.info("post-processing...")
+        post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
         text = post_processed["text"]
-        timestamps = post_processed.get("chunks")
-        if timestamps is not None:
+        if return_timestamps:
+            timestamps = post_processed.get("chunks")
             timestamps = [
                 f"[{format_timestamp(chunk['timestamp'][0])} -> {format_timestamp(chunk['timestamp'][1])}] {chunk['text']}"
                 for chunk in timestamps
             ]
             text = "\n".join(str(feature) for feature in timestamps)
+        logger.info("done post-processing")
         return text, runtime
 
     def transcribe_chunked_audio(inputs, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
+        logger.info("loading audio file...")
         if inputs is None:
+            logger.warning("No audio file")
             raise gr.Error("No audio file submitted! Please upload an audio file before submitting your request.")
         file_size_mb = os.stat(inputs).st_size / (1024 * 1024)
         if file_size_mb > FILE_LIMIT_MB:
+            logger.warning("Max file size exceeded")
             raise gr.Error(
                 f"File size exceeds file size limit. Got file of size {file_size_mb:.2f}MB for a limit of {FILE_LIMIT_MB}MB."
             )
@@ -153,8 +138,9 @@ if __name__ == "__main__":
         with open(inputs, "rb") as f:
             inputs = f.read()
 
-        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
-        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
+        inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
+        logger.info("done loading")
         text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return text, runtime
 
@@ -168,14 +154,21 @@ if __name__ == "__main__":
 
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress(), max_filesize=75.0):
         progress(0, desc="Loading audio file...")
+        logger.info("loading youtube file...")
         html_embed_str = _return_yt_html_embed(yt_url)
-        try:
-            yt = pytube.YouTube(yt_url)
-            stream = yt.streams.filter(only_audio=True)[0]
-        except KeyError:
-            raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
+
+        for attempt in range(YT_ATTEMPT_LIMIT):
+            try:
+                yt = pytube.YouTube(yt_url)
+                stream = yt.streams.filter(only_audio=True)[0]
+                break
+            except KeyError:
+                if attempt + 1 == YT_ATTEMPT_LIMIT:
+                    logger.warning("YouTube error")
+                    raise gr.Error("An error occurred while loading the YouTube video. Please try again.")
 
         if stream.filesize_mb > max_filesize:
+            logger.warning("Max YouTube size exceeded")
             raise gr.Error(f"Maximum YouTube file size is {max_filesize}MB, got {stream.filesize_mb:.2f}MB.")
 
         stream.download(filename="audio.mp3")
@@ -183,8 +176,9 @@ if __name__ == "__main__":
         with open("audio.mp3", "rb") as f:
             inputs = f.read()
 
-        inputs = ffmpeg_read(inputs, processor.feature_extractor.sampling_rate)
-        inputs = {"array": inputs, "sampling_rate": processor.feature_extractor.sampling_rate}
+        inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
+        inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
+        logger.info("done loading...")
         text, runtime = tqdm_generate(inputs, task=task, return_timestamps=return_timestamps, progress=progress)
         return html_embed_str, text, runtime
 
@@ -247,5 +241,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
-    demo.queue(concurrency_count=3, max_size=5)
-    demo.launch(show_api=False, max_threads=10)
+    demo.queue(concurrency_count=1, max_size=5)
+    demo.launch(server_name="0.0.0.0", show_api=False)

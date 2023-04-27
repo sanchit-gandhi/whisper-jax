@@ -24,7 +24,7 @@ do
 			#sudo lsof -t /dev/accel0 | xargs kill -9
 			#sleep 5
 			mv log.txt log_`date +%Y%m%d%H%M%S`
-			python app/direct_app.py &> log.txt &
+			TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD=10000000000 python ./app.py &> log.txt &
 		else
 			echo "Waiting for restart"
 		fi
