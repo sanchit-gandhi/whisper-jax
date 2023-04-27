@@ -393,76 +393,96 @@ pip install -e .["endpoint"]
 We recommend that you set-up an endpoint in the same zone/region as the one you are based in. This reduces the communication 
 time between your local machine and the remote one, which can significantly reduce the overall request time.
 
-The Python script [`fastapi_app.py`](app/fastapi_app.py) contains the code to launch a FastAPI app with the Whisper large-v2 model.
+## Gradio App
+
+The Python script [`app.py`](app/app.py) contains the code to launch a Gradio app with the Whisper large-v2 model.
 By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your 
 GPU/TPU device (as explained in the sections on [Half-precision](#half-precision) and [Batching](#batching)).
 
-You can launch the FastAPI app through Uvicorn using the bash script [`launch_app.sh`](app/launch_app.sh):
+We can launch the Gradio app on port 7860 (default) on our GPU/TPU device through the following command:
 ```
-bash launch_app.sh
-```
-
-This will open the port 8000 for the FastAPI app. To direct network requests to the FastAPI app, we use ngrok to launch a 
-server on the corresponding port:
-```
-ngrok http --subdomain=whisper-jax 8000
+python app/app.py
 ```
 
-We can now send json requests to our endpoint using ngrok. The function `transcribe_audio` loads an audio file, encodes it 
-in bytes, sends it to our endpoint, and returns the transcription:
+This will launch a Gradio demo with the same interface as the official Whisper JAX demo. To view the Gradio app remotely, 
+we have two options:
+
+1. Open the port 7860 on the GPU/TPU device to listen to all requests
+2. Start an ngrok server on the GPU/TPU that redirects requests to port 7860
+
+To open the port 7860 on your GPU/TPU, refer to your hardware provider's firewall instructions (for GCP, these can be 
+found [here](https://cloud.google.com/firewall/docs/using-firewalls)). Once you have opened port 7860, you should be able 
+to access the gradio demo through the http address:
+```
+http://DEVICE-IP:7860
+```
+where `DEVICE-IP` is the public IP address of your GPU/TPU. We can verify this address is accessible by opening this 
+http address in a browser window on our local machine.
+
+Alternatively, we can direct network requests to the Gradio app using ngrok. By using ngrok, we don't need to open the 
+port 7860 on our GPU/TPU - ngrok will provide us with a public http address that will automatically redirect requests to 
+port 7860 on our accelerator. However, in our experience, using ngrok was less reliable than a direct tunnel to port 7860, 
+thus we recommend option 1 here where possible.
+
+To set-up ngrok on your GPU/TPU, first install ngrok according to the official [installation guide](https://ngrok.com/download).
+You should authenticate your ngrok account if you have one, otherwise your ngrok server will be time-limited to 2 hours.
+Once installed and authenticated, you can launch an ngrok server on port 7860:
+```
+ngrok http 7860
+```
+The ngrok http address will be of the form:
+```
+https://NGROK-ADDRESS.ngrok.io
+```
+which can be used to access the Gradio demo through a web browser.
+
+## Sending Requests
+
+Independent of whether you've chosen to open the port 7860 or use ngrok, we're now ready to send audio file requests to our
+endpoint. To do this, we'll make use of the `gradio_client` library. If you already have a recent version of Gradio, 
+then the `gradio_client` library is included as a dependency.
+
+Otherwise, the lightweight `gradio_client` package can be installed from pip and is tested to work with Python 
+versions 3.9 or higher:
+```
+pip install --upgrade gradio_client
+```
+
+We can now send json requests to our endpoint using ngrok. The function `transcribe_audio` sends an audio file to our endpoint 
+and returns the transcription:
 
 ```python
-import base64
-from transformers.pipelines.audio_utils import ffmpeg_read
-import requests
+from gradio_client import Client
 
-API_URL = "https://whisper-jax.ngrok.io/generate/"  # make sure this URL matches your ngrok subdomain
+# make sure this URL matches your http web address
+API_URL = "http://DEVICE-IP:7860/" # if using port 7860
+API_URL = "https://NGROK-ADDRESS.ngrok.io/" # if using ngrok
 
+# set up the Gradio client
+client = Client(API_URL)
 
-def query(payload):
-    """Send json payload to ngrok API URL and return response."""
-    response = requests.post(API_URL, json=payload)
-    return response.json(), response.status_code
-
-
-def transcribe_audio(audio_file, task="transcribe", return_timestamps=False):
-    with open(audio_file, "rb") as f:
-        inputs = f.read()
-    inputs = ffmpeg_read(inputs, sampling_rate=16000)
-    # encode to bytes to make json compatible
-    inputs = {"array": base64.b64encode(inputs.tobytes()).decode(), "sampling_rate": 16000}
-    # format as a json payload and send query
-    payload = {"inputs": inputs, "task": task, "return_timestamps": return_timestamps}
-    data, status_code = query(payload)
-
-    if status_code == 200:
-        output = {"text": data["text"], "chunks": data.get("chunks", None)}
-    else:
-        output = data["detail"]
-
-    return output
+def transcribe_audio(audio_path, task="transcribe", return_timestamps=False):
+    """Function to transcribe an audio file using our endpoint"""
+    text, runtime = client.predict(
+        audio_path,
+        task,
+        return_timestamps,
+        api_name="/predict_1",
+    )
+    return text
 
 # transcribe an audio file using our endpoint
 output = transcribe_audio("audio.mp3")
-```
 
-Note that this code snippet sends a base64 byte encoding of the audio file to the remote machine over [`requests`](https://requests.readthedocs.io). 
-In some cases, transferring the audio request from the local machine to the remote can take longer than actually 
-transcribing it. Therefore, you may wish to explore more efficient methods of sending requests, such as parallel 
-requests/transcription (see function `transcribe_chunked_audio` in [app.py](app/app.py).)
-
-Finally, we can create a Gradio demo for the frontend, the code for which resides in [`app.py`](app/app.py). You can launch this 
-application by providing the ngrok subdomain:
+# transcribe with timestamps
+output_with_timestamps = transcribe_audio("audio.mp3", return_timestamps=True)
 ```
-API_URL=https://whisper-jax.ngrok.io/generate/ API_URL_FROM_FEATURES=https://whisper-jax.ngrok.io/generate_from_features/ python app.py
-```
-
-This will launch a Gradio demo with the same interface as the official Whisper JAX demo.
 
 ## Acknowledgements
 
 * 🤗 Hugging Face Transformers for the base Whisper implementation, particularly to [andyehrenberg](https://github.com/andyehrenberg) for the [Flax Whisper PR](https://github.com/huggingface/transformers/pull/20479) and [ArthurZucker](https://github.com/ArthurZucker) for the batching algorithm 
 * Gradio for their easy-to-use package for building ML demos, and [pcuenca](https://github.com/pcuenca) for the help in hooking the demo up to the TPU 
 * Google's [TPU Research Cloud (TRC)](https://sites.research.google/trc/about/) programme for Cloud TPUs
+* Google's [t5x Repository](https://github.com/google-research/t5x) for the model partitioning framework
 
 [^1]: See WER results from Colab: https://colab.research.google.com/drive/1rS1L4YSJqKUH_3YxIQHBI982zso23wor?usp=sharing

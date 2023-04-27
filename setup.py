@@ -35,8 +35,6 @@ _extras_dev_deps = [
 _extras_endpoint_deps = [
     "gradio>=3.25.0",
     "requests>=2.28.2",
-    "fastapi>=0.95.0",
-    "uvicorn>=0.21.1",
     "pytube>=12.1.3",
 ]
 
