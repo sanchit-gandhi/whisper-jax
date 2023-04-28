@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import tempfile
 import time
 from multiprocessing import Pool
 
@@ -19,9 +20,9 @@ cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
 BATCH_SIZE = 32
 CHUNK_LENGTH_S = 30
-NUM_PROC = 8
+NUM_PROC = 32
 FILE_LIMIT_MB = 1000
-YT_LENGTH_LIMIT_S = 3600
+YT_LENGTH_LIMIT_S = 7200  # limit to 2 hour YouTube files
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
@@ -82,7 +83,6 @@ if __name__ == "__main__":
     logger.info("compiling forward call...")
     start = time.time()
     random_inputs = {"input_features": np.ones((BATCH_SIZE, 80, 3000))}
-    random_outputs = pipeline.forward(random_inputs.copy(), batch_size=BATCH_SIZE, return_timestamps=False)
     random_timestamps = pipeline.forward(random_inputs, batch_size=BATCH_SIZE, return_timestamps=True)
     compile_time = time.time() - start
     logger.info(f"compiled in {compile_time}s")
@@ -107,14 +107,12 @@ if __name__ == "__main__":
         logger.info("transcribing...")
         # iterate over our chunked audio samples - always predict timestamps to reduce hallucinations
         for batch, _ in zip(dataloader, progress.tqdm(dummy_batches, desc="Transcribing...")):
-            model_outputs.append(
-                pipeline.forward(batch, batch_size=BATCH_SIZE, task=task, return_timestamps=return_timestamps)
-            )
+            model_outputs.append(pipeline.forward(batch, batch_size=BATCH_SIZE, task=task, return_timestamps=True))
         runtime = time.time() - start_time
         logger.info("done transcription")
 
         logger.info("post-processing...")
-        post_processed = pipeline.postprocess(model_outputs, return_timestamps=return_timestamps)
+        post_processed = pipeline.postprocess(model_outputs, return_timestamps=True)
         text = post_processed["text"]
         if return_timestamps:
             timestamps = post_processed.get("chunks")
@@ -156,39 +154,45 @@ if __name__ == "__main__":
         )
         return HTML_str
 
-    def download_audio(yt_url):
+    def download_yt_audio(yt_url, filename):
         info_loader = youtube_dl.YoutubeDL()
-        info = info_loader.extract_info(yt_url, download=False)
-        file_length_s = info["formats"][0]["fragments"][0]["duration"]
+        try:
+            info = info_loader.extract_info(yt_url, download=False)
+        except youtube_dl.utils.DownloadError as err:
+            raise gr.Error(str(err))
 
+        file_length = info["duration_string"]
+        file_h_m_s = file_length.split(":")
+        file_h_m_s = [int(sub_length) for sub_length in file_h_m_s]
+        if len(file_h_m_s) == 1:
+            file_h_m_s.insert(0, 0)
+        if len(file_h_m_s) == 2:
+            file_h_m_s.insert(0, 0)
+
+        file_length_s = file_h_m_s[0] * 3600 + file_h_m_s[1] * 60 + file_h_m_s[2]
         if file_length_s > YT_LENGTH_LIMIT_S:
             yt_length_limit_hms = time.strftime("%HH:%MM:%SS", time.gmtime(YT_LENGTH_LIMIT_S))
             file_length_hms = time.strftime("%HH:%MM:%SS", time.gmtime(file_length_s))
-            raise gr.Error(f"Maximum YouTube length is {yt_length_limit_hms}, got {file_length_hms}.")
+            raise gr.Error(f"Maximum YouTube length is {yt_length_limit_hms}, got {file_length_hms} YouTube video.")
 
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": "audio",
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ],
-        }
+        ydl_opts = {"outtmpl": filename, "format": "worstvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"}
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([yt_url])
+            try:
+                ydl.download([yt_url])
+            except youtube_dl.utils.ExtractorError as err:
+                raise gr.Error(str(err))
 
     def transcribe_youtube(yt_url, task, return_timestamps, progress=gr.Progress()):
         progress(0, desc="Loading audio file...")
         logger.info("loading youtube file...")
         html_embed_str = _return_yt_html_embed(yt_url)
 
-        download_audio(yt_url)
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            filepath = os.path.join(tmpdirname, "video.mp4")
+            download_yt_audio(yt_url, filepath)
 
-        with open("audio.mp3", "rb") as f:
-            inputs = f.read()
+            with open(filepath, "rb") as f:
+                inputs = f.read()
 
         inputs = ffmpeg_read(inputs, pipeline.feature_extractor.sampling_rate)
         inputs = {"array": inputs, "sampling_rate": pipeline.feature_extractor.sampling_rate}
