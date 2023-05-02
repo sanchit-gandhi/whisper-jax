@@ -393,7 +393,7 @@ pip install -e .["endpoint"]
 We recommend that you set-up an endpoint in the same zone/region as the one you are based in. This reduces the communication 
 time between your local machine and the remote one, which can significantly reduce the overall request time.
 
-## Gradio App
+### Gradio App
 
 The Python script [`app.py`](app/app.py) contains the code to launch a Gradio app with the Whisper large-v2 model.
 By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your 
@@ -436,7 +436,7 @@ https://NGROK-ADDRESS.ngrok.io
 ```
 which can be used to access the Gradio demo through a web browser.
 
-## Sending Requests
+### Sending Requests
 
 Independent of whether you've chosen to open the port 7860 or use ngrok, we're now ready to send audio file requests to our
 endpoint. To do this, we'll make use of the `gradio_client` library. If you already have a recent version of Gradio, 

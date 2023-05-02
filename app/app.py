@@ -18,6 +18,7 @@ from whisper_jax import FlaxWhisperPipline
 
 cc.initialize_cache("./jax_cache")
 checkpoint = "openai/whisper-large-v2"
+
 BATCH_SIZE = 32
 CHUNK_LENGTH_S = 30
 NUM_PROC = 32
@@ -186,7 +187,6 @@ if __name__ == "__main__":
         progress(0, desc="Loading audio file...")
         logger.info("loading youtube file...")
         html_embed_str = _return_yt_html_embed(yt_url)
-
         with tempfile.TemporaryDirectory() as tmpdirname:
             filepath = os.path.join(tmpdirname, "video.mp4")
             download_yt_audio(yt_url, filepath)
