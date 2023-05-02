@@ -442,8 +442,8 @@ Independent of whether you've chosen to open the port 7860 or use ngrok, we're n
 endpoint. To do this, we'll make use of the `gradio_client` library. If you already have a recent version of Gradio, 
 then the `gradio_client` library is included as a dependency.
 
-Otherwise, the lightweight `gradio_client` package can be installed from pip and is tested to work with Python 
-versions 3.9 or higher:
+Otherwise, the lightweight `gradio_client` package can be installed from pip and is tested to work with Python versions 
+3.9 or higher:
 ```
 pip install --upgrade gradio_client
 ```
