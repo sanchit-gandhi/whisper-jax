@@ -54,7 +54,7 @@ logical_axis_rules_dp = (
 )
 
 
-class FlaxWhisperPipline:
+class FlaxWhisperPipeline:
     def __init__(
         self,
         checkpoint="openai/whisper-large-v2",
