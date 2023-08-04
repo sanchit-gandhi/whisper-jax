@@ -34,8 +34,6 @@ from .partitioner import PjitPartitioner
 from .train_state import InferenceState
 
 
-jax.config.update("jax_array", True)
-
 logger = logging.get_logger(__name__)
 
 # 2D parameter and activation partitioning for DP
