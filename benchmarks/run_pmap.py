@@ -3,6 +3,7 @@ import time
 import jax
 import jax.numpy as jnp
 from datasets import concatenate_datasets, load_dataset
+from flax import jax_utils
 from flax.training.common_utils import shard
 from transformers import FlaxWhisperForConditionalGeneration, WhisperProcessor
 
@@ -17,7 +18,7 @@ model, params = FlaxWhisperForConditionalGeneration.from_pretrained(
     dtype=jnp.bfloat16,
 )
 
-params = model.to_bf16(params)
+params = jax_utils.replicate(params)
 
 
 def generate_fn(batch):
