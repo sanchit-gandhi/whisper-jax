@@ -12,6 +12,8 @@ check_server() {
 
 while [ 1 ]
 do
+  # periodically clear the /tmp directory for files created > 30 mins ago so it doesn't fill up
+  sudo find /tmp -type f -amin +30 -delete
 	check_server
 	if [[ $? -ne 1 ]]
 	then
@@ -20,9 +22,8 @@ do
 			waiting=1
 			echo "Restarting"
 			pkill -9 python
-			sleep 5
 			#sudo lsof -t /dev/accel0 | xargs kill -9
-			#sleep 5
+			sleep 5
 			mv log.txt log_`date +%Y%m%d%H%M%S`
 			TCMALLOC_LARGE_ALLOC_REPORT_THRESHOLD=10000000000 python ./app.py &> log.txt &
 		else
