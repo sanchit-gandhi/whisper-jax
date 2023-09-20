@@ -21,7 +21,7 @@ import dataclasses
 import typing
 from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
-import cached_property
+from functools import cached_property
 import jax
 import numpy as np
 from absl import logging
@@ -43,10 +43,10 @@ PyTreeDef = type(jax.tree_util.tree_structure(None))
 TrainState = Any
 LogicalAxisRules = Sequence[Tuple[str, Optional[str]]]
 
-if typing.TYPE_CHECKING:  # See b/163639353
-    cached_property = property  # pylint: disable=invalid-name
-else:
-    cached_property = cached_property.cached_property
+#if typing.TYPE_CHECKING:  # See b/163639353
+#    cached_property = property  # pylint: disable=invalid-name
+#else:
+#    cached_property = cached_property.cached_property
 
 
 class AxisNames(tuple):
