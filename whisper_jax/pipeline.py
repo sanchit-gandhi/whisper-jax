@@ -87,7 +87,7 @@ class FlaxWhisperPipline:
             self.checkpoint,
             _do_init=False,
             dtype=self.dtype,
-            input_shape = (1, self.feature_extractor.feature_size, 3000),
+            input_shape=(1, self.feature_extractor.feature_size, 3000),
         )
 
         self.max_length = max_length if max_length is not None else self.model.generation_config.max_length
