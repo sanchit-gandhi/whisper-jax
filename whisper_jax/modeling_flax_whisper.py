@@ -997,13 +997,16 @@ class FlaxWhisperPreTrainedModel(FlaxPreTrainedModel):
     def __init__(
         self,
         config: WhisperConfig,
-        input_shape: Tuple[int] = (1, 80, 3000),
+        input_shape: Tuple[int, int, int] = None,
         seed: int = 0,
         dtype: jnp.dtype = jnp.float32,
         params_dtype: jnp.dtype = jnp.float32,
         _do_init: bool = True,
         **kwargs,
     ):
+        if input_shape is None:
+            input_shape = (1, config.num_mel_bins, 2 * config.max_source_positions)
+
         module = self.module_class(config=config, dtype=dtype, params_dtype=params_dtype, **kwargs)
         super().__init__(config, module, input_shape=input_shape, seed=seed, dtype=dtype, _do_init=_do_init)
 
