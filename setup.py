@@ -22,7 +22,7 @@ from setuptools import find_packages, setup
 
 
 _deps = [
-    "transformers>=4.27.4",
+    "transformers>=4.27.4,<4.35.0",
     "flax",
     "cached-property",
 ]
