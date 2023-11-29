@@ -83,7 +83,11 @@ if __name__ == "__main__":
     # do a pre-compile step so that the first user to use the demo isn't hit with a long transcription time
     logger.info("compiling forward call...")
     start = time.time()
-    random_inputs = {"input_features": np.ones((BATCH_SIZE, 80, 3000))}
+    random_inputs = {
+        "input_features": np.ones(
+            BATCH_SIZE, pipeline.model.config.num_mel_bins, 2 * pipeline.model.config.max_source_positions
+        )
+    }
     random_timestamps = pipeline.forward(random_inputs, batch_size=BATCH_SIZE, return_timestamps=True)
     compile_time = time.time() - start
     logger.info(f"compiled in {compile_time}s")
