@@ -85,7 +85,7 @@ if __name__ == "__main__":
     start = time.time()
     random_inputs = {
         "input_features": np.ones(
-            BATCH_SIZE, pipeline.model.config.num_mel_bins, 2 * pipeline.model.config.max_source_positions
+            (BATCH_SIZE, pipeline.model.config.num_mel_bins, 2 * pipeline.model.config.max_source_positions)
         )
     }
     random_timestamps = pipeline.forward(random_inputs, batch_size=BATCH_SIZE, return_timestamps=True)
