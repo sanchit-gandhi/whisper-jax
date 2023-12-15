@@ -17,5 +17,5 @@ __version__ = "0.0.1"
 
 from .modeling_flax_whisper import FlaxWhisperForConditionalGeneration
 from .partitioner import PjitPartitioner
-from .pipeline import FlaxWhisperPipline
+from .pipeline import FlaxWhisperPipeline
 from .train_state import InferenceState
