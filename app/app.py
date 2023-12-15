@@ -207,13 +207,13 @@ if __name__ == "__main__":
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
-            gr.inputs.Audio(source="microphone", optional=True, type="filepath"),
-            gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
-            gr.inputs.Checkbox(default=False, label="Return timestamps"),
+            gr.Audio(sources=["microphone"], type="filepath"),
+            gr.Radio(["transcribe", "translate"], label="Task", value="transcribe"),
+            gr.Checkbox(value=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Transcription Time (s)"),
+            gr.Textbox(label="Transcription", show_copy_button=True),
+            gr.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -224,13 +224,13 @@ if __name__ == "__main__":
     audio_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
-            gr.inputs.Audio(source="upload", optional=True, label="Audio file", type="filepath"),
-            gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
-            gr.inputs.Checkbox(default=False, label="Return timestamps"),
+            gr.Audio(sources=["upload"], label="Audio file", type="filepath"),
+            gr.Radio(["transcribe", "translate"], label="Task", value="transcribe"),
+            gr.Checkbox(value=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Transcription Time (s)"),
+            gr.Textbox(label="Transcription", show_copy_button=True),
+            gr.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -241,14 +241,14 @@ if __name__ == "__main__":
     youtube = gr.Interface(
         fn=transcribe_youtube,
         inputs=[
-            gr.inputs.Textbox(lines=1, placeholder="Paste the URL to a YouTube video here", label="YouTube URL"),
-            gr.inputs.Radio(["transcribe", "translate"], label="Task", default="transcribe"),
-            gr.inputs.Checkbox(default=False, label="Return timestamps"),
+            gr.Textbox(lines=1, placeholder="Paste the URL to a YouTube video here", label="YouTube URL"),
+            gr.Radio(["transcribe", "translate"], label="Task", value="transcribe"),
+            gr.Checkbox(value=False, label="Return timestamps"),
         ],
         outputs=[
-            gr.outputs.HTML(label="Video"),
-            gr.outputs.Textbox(label="Transcription").style(show_copy_button=True),
-            gr.outputs.Textbox(label="Transcription Time (s)"),
+            gr.HTML(label="Video"),
+            gr.Textbox(label="Transcription", show_copy_button=True),
+            gr.Textbox(label="Transcription Time (s)"),
         ],
         allow_flagging="never",
         title=title,
@@ -263,5 +263,5 @@ if __name__ == "__main__":
     with demo:
         gr.TabbedInterface([microphone_chunked, audio_chunked, youtube], ["Microphone", "Audio File", "YouTube"])
 
-    demo.queue(concurrency_count=1, max_size=5)
+    demo.queue(max_size=5)
     demo.launch(server_name="0.0.0.0", show_api=False)
