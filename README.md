@@ -396,7 +396,7 @@ time between your local machine and the remote one, which can significantly redu
 ### Gradio App
 
 The Python script [`app.py`](app/app.py) contains the code to launch a Gradio app with the Whisper large-v2 model.
-By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your 
+By default, it uses a batch size of 16 and bfloat16 half-precision. You should update these parameters depending on your
 GPU/TPU device (as explained in the sections on [Half-precision](#half-precision) and [Batching](#batching)).
 
 We can launch the Gradio app on port 7860 (default) on our GPU/TPU device through the following command:
@@ -404,37 +404,54 @@ We can launch the Gradio app on port 7860 (default) on our GPU/TPU device throug
 python app/app.py
 ```
 
-This will launch a Gradio demo with the same interface as the official Whisper JAX demo. To view the Gradio app remotely, 
+This will launch a Gradio demo with the same interface as the official Whisper JAX demo. To view the Gradio app remotely,
 we have two options:
 
-1. Open the port 7860 on the GPU/TPU device to listen to all requests
-2. Start an ngrok server on the GPU/TPU that redirects requests to port 7860
+1. Open the port 7860 on the GPU/TPU device to listen to all requests.
+2. Start a tunneling server on the GPU/TPU that redirects requests to port 7860.
 
-To open the port 7860 on your GPU/TPU, refer to your hardware provider's firewall instructions (for GCP, these can be 
-found [here](https://cloud.google.com/firewall/docs/using-firewalls)). Once you have opened port 7860, you should be able 
-to access the gradio demo through the http address:
+To open the port 7860 on your GPU/TPU, refer to your hardware provider's firewall instructions (for GCP, these can be
+found [here](https://cloud.google.com/firewall/docs/using-firewalls)). Once you have opened port 7860, you should be able
+to access the gradio demo through the HTTP address:
 ```
 http://DEVICE-IP:7860
 ```
-where `DEVICE-IP` is the public IP address of your GPU/TPU. We can verify this address is accessible by opening this 
-http address in a browser window on our local machine.
+where `DEVICE-IP` is the public IP address of your GPU/TPU. We can verify this address is accessible by opening this
+HTTP address in a browser window on our local machine.
 
-Alternatively, we can direct network requests to the Gradio app using ngrok. By using ngrok, we don't need to open the 
-port 7860 on our GPU/TPU - ngrok will provide us with a public http address that will automatically redirect requests to 
-port 7860 on our accelerator. However, in our experience, using ngrok was less reliable than a direct tunnel to port 7860, 
-thus we recommend option 1 here where possible.
+Alternatively, we can direct network requests to the Gradio app using either Tunnelmole, an open source tunnelling tool, or ngrok, a popular closed source tunnelling tool. These tools provide a public http address that will automatically redirect requests to port 7860 on our accelerator.
 
-To set-up ngrok on your GPU/TPU, first install ngrok according to the official [installation guide](https://ngrok.com/download).
-You should authenticate your ngrok account if you have one, otherwise your ngrok server will be time-limited to 2 hours.
-Once installed and authenticated, you can launch an ngrok server on port 7860:
+#### Using TunnelMole
+
+[Tunnelmole](https://github.com/robbie-cahill/tunnelmole-client) is an open source tunneling tool that will create a public URL that forwards traffic to your local machine through a secure tunnel. To install it on Linux, Mac, or Windows Subsystem for Linux, use the following command:
+```
+curl -O https://tunnelmole.com/sh/install.sh && sudo bash install.sh
+```
+*For Windows without WSL, you can [Download tmole.exe](https://tunnelmole.com/downloads/tmole.exe) and add it to your [PATH](https://www.wikihow.com/Change-the-PATH-Environment-Variable-on-Windows).*
+
+To create a tunnel, simply run:
+```
+tmole 7860
+```
+This creates a public URL that forwards to your local port 7860:
+```
+http://bvdo5f-ip-49-183-170-144.tunnelmole.net is forwarding to localhost:7860
+https://bvdo5f-ip-49-183-170-144.tunnelmole.net is forwarding to localhost:7860
+```
+
+#### Using ngrok
+
+ngrok is a popular closed source tunnelling tool. First, install ngrok according to the official [installation guide](https://ngrok.com/download). Authenticate your ngrok account if you have one, otherwise the server will be time limited to 2 hours. Once installed and authenticated, launch an ngrok server on port 7860:
 ```
 ngrok http 7860
 ```
-The ngrok http address will be of the form:
+The ngrok HTTP address will be as follows:
 ```
-https://NGROK-ADDRESS.ngrok.io
+http://NGROK-ADDRESS.ngrok.io
 ```
 which can be used to access the Gradio demo through a web browser.
+
+For both Tunnelmole and ngrok, while their use can be convenient by avoiding the need to handle hardware provider firewalls, using a direct tunnel to port 7860, as in Option 1, can sometimes be more reliable.
 
 ### Sending Requests
 
