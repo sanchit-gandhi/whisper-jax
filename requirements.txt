@@ -1,0 +1,12 @@
+gradio>=3.25.0
+requests>=2.28.2
+yt-dlp>=2023.3.4
+flax
+transformers>=4.27.4
+tqdm
+librosa
+cached_property
+absl-py
+datasets
+librosa
+setuptools

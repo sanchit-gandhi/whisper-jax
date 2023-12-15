@@ -1,0 +1,32 @@
+version: "3.7"
+
+services:
+  whisper-jax:
+    image: whisper-jax:v1.0
+    build:
+      context: .
+
+    container_name: whisper-jax
+    #user: root
+    environment:
+      - GIT_PYTHON_REFRESH=quiet
+      - HUGGINGFACE_HUB_CACHE=/home/user/temp/cache/HUGGINGFACE_HUB_CACHE
+      - TRANSFORMERS_CACHE=/home/user/temp/cache/TRANSFORMERS_CACHE
+      - HF_DATASETS_CACHE=/home/user/temp/cache/HF_DATASETS_CACHE
+      - HF_HOME=/home/user/temp/cache/HF_HOME
+      - TORCH_HOME=/home/user/temp/cache/TORCH_HOME
+      #- TRANSFORMERS_OFFLINE=1
+    tty: true
+    stdin_open: true
+    volumes:
+      - .:/home/user/temp/
+      #- ./cache/:/home/user/.cache/
+    ports:
+      - 8007:9000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
