@@ -405,28 +405,41 @@ python app/app.py
 ```
 
 This will launch a Gradio demo with the same interface as the official Whisper JAX demo. To view the Gradio app remotely, 
-we have two options:
+we have three options:
 
 1. Open the port 7860 on the GPU/TPU device to listen to all requests
-2. Start an ngrok server on the GPU/TPU that redirects requests to port 7860
+2. Start a Tunnelmole client on the GPU/TPU instance to get a public URL that redirects requests to port 7860
+3. Start a ngrok client on the GPU/TPU instance to get a public URL that redirects requests to port 7860
 
 To open the port 7860 on your GPU/TPU, refer to your hardware provider's firewall instructions (for GCP, these can be 
 found [here](https://cloud.google.com/firewall/docs/using-firewalls)). Once you have opened port 7860, you should be able 
-to access the gradio demo through the http address:
+to access the Gradio demo through the http address:
 ```
 http://DEVICE-IP:7860
 ```
 where `DEVICE-IP` is the public IP address of your GPU/TPU. We can verify this address is accessible by opening this 
 http address in a browser window on our local machine.
 
-Alternatively, we can direct network requests to the Gradio app using ngrok. By using ngrok, we don't need to open the 
-port 7860 on our GPU/TPU - ngrok will provide us with a public http address that will automatically redirect requests to 
-port 7860 on our accelerator. However, in our experience, using ngrok was less reliable than a direct tunnel to port 7860, 
-thus we recommend option 1 here where possible.
+Alternatively, we can direct network requests to the Gradio app using Tunnelmole or ngrok. Both of these tools will provide us 
+with a public http address that will automatically redirect requests to port 7860 on our accelerator.
 
-To set-up ngrok on your GPU/TPU, first install ngrok according to the official [installation guide](https://ngrok.com/download).
-You should authenticate your ngrok account if you have one, otherwise your ngrok server will be time-limited to 2 hours.
-Once installed and authenticated, you can launch an ngrok server on port 7860:
+[Tunnelmole](https://github.com/robbie-cahill/tunnelmole-client) is an open source tunnelling tool. To set-up Tunnelmole on your GPU/TPU instance, install it using the following command:
+```
+curl -O https://install.tunnelmole.com/ZW_wj/install && sudo bash install
+```
+Or, head to the [README](https://github.com/robbie-cahill/tunnelmole-client) for other installation options like NPM or building from source. You can then run Tunnelmole using:
+```
+tmole 7860
+```
+The Tunnelmole http address will be of the form:
+```
+https://TM-TUNNEL-ADDRESS.tunnelmole.net
+```
+This address can be used to access the Gradio demo through a web browser.
+
+ngrok is a popular closed source tunnelling tool. To set-up ngrok on your GPU/TPU, first install ngrok according to the official 
+[installation guide](https://ngrok.com/download). You should authenticate your ngrok account if you have one, otherwise your 
+ngrok server will be time-limited to 2 hours. Once installed and authenticated, you can launch an ngrok server on port 7860:
 ```
 ngrok http 7860
 ```
@@ -438,9 +451,8 @@ which can be used to access the Gradio demo through a web browser.
 
 ### Sending Requests
 
-Independent of whether you've chosen to open the port 7860 or use ngrok, we're now ready to send audio file requests to our
-endpoint. To do this, we'll make use of the `gradio_client` library. If you already have a recent version of Gradio, 
-then the `gradio_client` library is included as a dependency.
+We're now ready to send audio file requests to our endpoint. To do this, we'll make use of the `gradio_client` library. If you already have a recent version 
+of Gradio, then the `gradio_client` library is included as a dependency.
 
 Otherwise, the lightweight `gradio_client` package can be installed from pip and is tested to work with Python versions 
 3.9 or higher:
@@ -448,14 +460,15 @@ Otherwise, the lightweight `gradio_client` package can be installed from pip and
 pip install --upgrade gradio_client
 ```
 
-We can now send json requests to our endpoint using ngrok. The function `transcribe_audio` sends an audio file to our endpoint 
-and returns the transcription:
+We can now send json requests to our endpoint using Tunnelmole or ngrok. The function `transcribe_audio` sends an audio file 
+to our endpoint and returns the transcription:
 
 ```python
 from gradio_client import Client
 
 # make sure this URL matches your http web address
 API_URL = "http://DEVICE-IP:7860/" # if using port 7860
+API_URL = "https://TM-TUNNEL-ADDRESS.tunnelmole.net/" # if using Tunnelmole
 API_URL = "https://NGROK-ADDRESS.ngrok.io/" # if using ngrok
 
 # set up the Gradio client
