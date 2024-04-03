@@ -24,8 +24,8 @@ from flax import jax_utils
 from flax.core.frozen_dict import freeze
 from flax.training.common_utils import shard
 from jax.sharding import PartitionSpec as P
-from transformers import WhisperProcessor
-from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE
+from transformers import WhisperProcessor, is_tokenizers_available, WhisperFeatureExtractor, WhisperTokenizerFast
+from transformers.models.whisper.tokenization_whisper import TO_LANGUAGE_CODE, WhisperTokenizer
 from transformers.pipelines.audio_utils import ffmpeg_read
 from transformers.utils import logging
 
@@ -81,7 +81,9 @@ class FlaxWhisperPipline:
 
         self.processor = WhisperProcessor.from_pretrained(self.checkpoint)
         self.feature_extractor = self.processor.feature_extractor
-        self.tokenizer = self.processor.tokenizer
+        # potentially load fast tokenizer if available
+        tokenizer_cls = WhisperTokenizerFast if is_tokenizers_available() else WhisperTokenizer
+        self.tokenizer = tokenizer_cls.from_pretrained(checkpoint)
 
         self.model, self.params = FlaxWhisperForConditionalGeneration.from_pretrained(
             self.checkpoint,
@@ -253,9 +255,8 @@ class FlaxWhisperPipline:
         num_batches = math.ceil(num_samples / batch_size)
         batch_idx = np.array_split(np.arange(num_samples), num_batches)
 
-        for i, idx in enumerate(batch_idx):
+        for idx in batch_idx:
             chunk_start_idx = all_chunk_start_idx[idx]
-
             chunk_end_idx = chunk_start_idx + chunk_len
 
             chunks = [inputs[chunk_start:chunk_end] for chunk_start, chunk_end in zip(chunk_start_idx, chunk_end_idx)]
@@ -272,6 +273,11 @@ class FlaxWhisperPipline:
                 (chunk_l, _stride_l, _stride_r)
                 for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)
             ]
+
+            if is_last.any():
+                last_idx = np.argmax(is_last)
+                strides = strides[:last_idx]
+                processed = {key: value[:last_idx] for key, value in processed.items()}
 
             yield {"stride": strides, **processed}
 

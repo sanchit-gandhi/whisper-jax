@@ -17,7 +17,7 @@ from whisper_jax import FlaxWhisperPipline
 
 
 cc.initialize_cache("./jax_cache")
-checkpoint = "openai/whisper-large-v2"
+checkpoint = "openai/whisper-large-v3"
 
 BATCH_SIZE = 32
 CHUNK_LENGTH_S = 30
@@ -27,14 +27,14 @@ YT_LENGTH_LIMIT_S = 7200  # limit to 2 hour YouTube files
 
 title = "Whisper JAX: The Fastest Whisper API ⚡️"
 
-description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v2) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
+description = """Whisper JAX is an optimised implementation of the [Whisper model](https://huggingface.co/openai/whisper-large-v3) by OpenAI. It runs on JAX with a TPU v4-8 in the backend. Compared to PyTorch on an A100 GPU, it is over [**70x faster**](https://github.com/sanchit-gandhi/whisper-jax#benchmarks), making it the fastest Whisper API available.
 
 Note that at peak times, you may find yourself in the queue for this demo. When you submit a request, your queue position will be shown in the top right-hand side of the demo pane. Once you reach the front of the queue, your audio file will be transcribed, with the progress displayed through a progress bar.
 
 To skip the queue, you may wish to create your own inference endpoint, details for which can be found in the [Whisper JAX repository](https://github.com/sanchit-gandhi/whisper-jax#creating-an-endpoint).
 """
 
-article = "Whisper large-v2 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
+article = "Whisper large-v3 model by OpenAI. Backend running JAX on a TPU v4-8 through the generous support of the [TRC](https://sites.research.google/trc/about/) programme. Whisper JAX [code](https://github.com/sanchit-gandhi/whisper-jax) and Gradio demo by 🤗 Hugging Face."
 
 language_names = sorted(TO_LANGUAGE_CODE.keys())
 
@@ -207,7 +207,7 @@ if __name__ == "__main__":
     microphone_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
-            gr.Audio(sources=["microphone"], type="filepath"),
+            gr.Audio(source="microphone", type="filepath"),
             gr.Radio(["transcribe", "translate"], label="Task", value="transcribe"),
             gr.Checkbox(value=False, label="Return timestamps"),
         ],
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     audio_chunked = gr.Interface(
         fn=transcribe_chunked_audio,
         inputs=[
-            gr.Audio(sources=["upload"], label="Audio file", type="filepath"),
+            gr.Audio(source="upload", label="Audio file", type="filepath"),
             gr.Radio(["transcribe", "translate"], label="Task", value="transcribe"),
             gr.Checkbox(value=False, label="Return timestamps"),
         ],
