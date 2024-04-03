@@ -274,11 +274,6 @@ class FlaxWhisperPipline:
                 for chunk_l, _stride_l, _stride_r in zip(chunk_lens, _stride_left, _stride_right)
             ]
 
-            if is_last.any():
-                last_idx = np.argmax(is_last)
-                strides = strides[:last_idx]
-                processed = {key: value[:last_idx] for key, value in processed.items()}
-
             yield {"stride": strides, **processed}
 
     def preprocess_batch(self, inputs, chunk_length_s=30.0, stride_length_s=None, batch_size=None):
