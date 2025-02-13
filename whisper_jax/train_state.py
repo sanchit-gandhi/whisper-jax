@@ -34,6 +34,8 @@ VariableDict = flax_scope.VariableDict
 
 
 def _validate_params_axes(params_axes, params):
+    if params_axes is None:
+        return  # No validation needed if params_axes is None
     axis_names = flax_partitioning.get_axis_names(params_axes)
     missing_params_axes = set(traverse_util.flatten_dict(params, sep="/")) - set(
         traverse_util.flatten_dict(axis_names, sep="/")
@@ -44,13 +46,14 @@ def _validate_params_axes(params_axes, params):
 
 def _split_variables_and_axes(variables_and_axes: FrozenVariableDict) -> Tuple[FrozenVariableDict, FrozenVariableDict]:
     """Splits `variables_and_axes` into two separate dicts with the same keys."""
-    # For each `key`, `key_axes` (if any) are its axes in `variables_and_axes`.
     variables = {}
     axes = {}
     for k, v in variables_and_axes.items():
         if k.endswith("_axes"):
-            axes[k[:-5]] = v  # k without "_axes".
-            _validate_params_axes(v, variables_and_axes[k[:-5]])  # k without "_axes".
+            param_key = k[:-5]  # Remove "_axes" suffix
+            axes[param_key] = v
+            if param_key in variables_and_axes:
+                _validate_params_axes(v, variables_and_axes[param_key])
         else:
             variables[k] = v
     return flax.core.freeze(variables), flax.core.freeze(axes)
@@ -67,13 +70,13 @@ class InferenceState(flax.struct.PyTreeNode):
 
     @classmethod
     def create(cls, model_variables: FrozenVariableDict) -> "InferenceState":
+        if "params" not in model_variables:
+            raise ValueError("Missing 'params' in model_variables.")
+        
         other_variables, params = model_variables.pop("params")
-        if "params_axes" in other_variables:
-            other_variables, params_axes = other_variables.pop("params_axes")
-            _validate_params_axes(params_axes, params)
-        else:
-            params_axes = None
-
+        params_axes = other_variables.pop("params_axes", None)
+        _validate_params_axes(params_axes, params)
+        
         # Split other_variables into mutables and their corresponding axes.
         flax_mutables, flax_mutables_axes = _split_variables_and_axes(other_variables)
         flax_mutables_axes = flax_mutables_axes or None
@@ -85,46 +88,24 @@ class InferenceState(flax.struct.PyTreeNode):
             flax_mutables_axes=flax_mutables_axes,
         )
 
-    @property
-    def param_states(self) -> FrozenVariableDict:
-        """The optimizer states of the parameters as a PyTree."""
-        raise NotImplementedError("InferenceState has no optimizer states.")
-
-    def apply_gradient(self, *args, **kwargs) -> "InferenceState":
-        raise NotImplementedError("InferenceState does not support `apply_gradient`.")
-
     def state_dict(self) -> MutableMapping[str, Any]:
         state_dict = {"target": flax.core.unfreeze(self.params), "state": {"step": self.step}}
         if self.flax_mutables:
             state_dict["flax_mutables"] = flax.core.unfreeze(self.flax_mutables)
         return state_dict
 
-    def replace_step(self, step: jnp.ndarray) -> "InferenceState":
-        return self.replace(step=step)
-
-    def replace_params(self, params: FrozenVariableDict) -> "InferenceState":
-        return self.replace(params=params)
-
-    def replace_flax_mutables(self, flax_mutables: FrozenDict) -> "InferenceState":
-        return self.replace(flax_mutables=flax_mutables)
-
     def restore_state(self, state_dict: Mapping[str, Any]) -> "InferenceState":
         return self.replace(
             params=flax.core.freeze(state_dict["target"]),
             step=state_dict["state"]["step"],
-            flax_mutables=flax.core.freeze(state_dict["flax_mutables"])
-            if "flax_mutables" in state_dict
-            else EMPTY_DICT,
+            flax_mutables=flax.core.freeze(state_dict.get("flax_mutables", EMPTY_DICT)),
         )
 
     def as_logical_axes(self) -> "InferenceState":
-        # Set step to None so that when the logical axes are processed by the
-        # flax.partitioning.logical_to_mesh_axes function, it will be skipped
-        # because jax.tree_map will short circut and never call the function on the
-        # step.
+        """Creates a logical axes representation of the inference state."""
         flax_mutables_axes = self.flax_mutables_axes or EMPTY_DICT
         return InferenceState(
             step=None,
-            params=flax_partitioning.get_axis_names(self.params_axes),
+            params=flax_partitioning.get_axis_names(self.params_axes) if self.params_axes else EMPTY_DICT,
             flax_mutables=flax_partitioning.get_axis_names(flax_mutables_axes),
         )
